@@ -100,4 +100,54 @@ public class BackupsQBitProducer implements QBitMetaDataProducer<BackupsQBitConf
       return (qBitConfig != null);
    }
 
+
+
+   /*******************************************************************************
+    ** Build everything and add it to the instance: possible-value sources, joins,
+    ** tables, processes, widgets and the app.
+    *******************************************************************************/
+   @Override
+   public com.kingsrook.qqq.backend.core.model.metadata.MetaDataProducerMultiOutput produce(com.kingsrook.qqq.backend.core.model.metadata.QInstance qInstance) throws com.kingsrook.qqq.backend.core.exceptions.QException
+   {
+      java.util.List<String> errors = new java.util.ArrayList<>();
+      qBitConfig.validate(qInstance, errors);
+      if(!errors.isEmpty())
+      {
+         throw (new com.kingsrook.qqq.backend.core.model.metadata.qbits.QBitConfigValidationException(qBitConfig, errors));
+      }
+      QBitMetaData qBit = getQBitMetaData();
+      qInstance.addQBit(qBit);
+      BackupsRuntime.install(qBitConfig);
+
+      com.kingsrook.qqq.backend.core.model.metadata.MetaDataProducerMultiOutput output = new com.kingsrook.qqq.backend.core.model.metadata.MetaDataProducerMultiOutput();
+      for(var possibleValueSource : com.kingsrook.qbits.backups.model.BackupsTables.possibleValueSources())
+      {
+         output.add(possibleValueSource);
+      }
+      for(var join : com.kingsrook.qbits.backups.model.BackupsTables.joins())
+      {
+         output.add(join);
+      }
+      java.util.List<com.kingsrook.qqq.backend.core.model.metadata.tables.QTableMetaData> tables = new java.util.ArrayList<>();
+      for(var table : com.kingsrook.qbits.backups.model.BackupsTables.tables(qBitConfig))
+      {
+         var customized = qBitConfig.getTableMetaDataCustomizer() == null ? table : qBitConfig.getTableMetaDataCustomizer().customizeMetaData(qInstance, table);
+         customized.setSourceQBitName(qBit.getName());
+         tables.add(customized);
+         output.add(customized);
+      }
+      for(var process : com.kingsrook.qbits.backups.processes.BackupsProcesses.processes())
+      {
+         process.setSourceQBitName(qBit.getName());
+         output.add(process);
+      }
+      for(var widget : com.kingsrook.qbits.backups.app.BackupsApp.widgets())
+      {
+         output.add(widget);
+      }
+      output.add(com.kingsrook.qbits.backups.app.BackupsApp.app(qBitConfig, tables));
+      output.addSelfToInstance(qInstance);
+      return (new com.kingsrook.qqq.backend.core.model.metadata.MetaDataProducerMultiOutput());
+   }
+
 }
