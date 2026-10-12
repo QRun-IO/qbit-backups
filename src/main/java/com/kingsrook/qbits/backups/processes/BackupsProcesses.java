@@ -73,6 +73,7 @@ public final class BackupsProcesses
       List<QProcessMetaData> processes = new ArrayList<>();
       processes.add(permission(etl(RUN_PLAN, "Run backup now", BackupsTables.PLAN, RunPlanTransform.class, RunPlanLoad.class,
          "This is a preview of what the backup will include. Nothing is written until you continue."), BackupsPermissions.RUN));
+      processes.addAll(VerifyProcesses.processes());
       return (processes);
    }
 
