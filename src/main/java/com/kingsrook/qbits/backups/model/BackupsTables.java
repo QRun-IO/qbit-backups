@@ -428,6 +428,7 @@ public final class BackupsTables
          .withField(roInt("scheduledJobId"))
          .withField(new QFieldMetaData("slaHours", QFieldType.INTEGER).withDefaultValue(26))
          .withField(new QFieldMetaData("verifySlaDays", QFieldType.INTEGER).withDefaultValue(8))
+         .withField(new QFieldMetaData("verifyFileSamplePercent", QFieldType.INTEGER).withDefaultValue(100))
          .withField(new QFieldMetaData("verifyCronExpression", QFieldType.STRING).withMaxLength(100))
          .withField(enumField("verifyLevel", "verify_level", "CONTENT"))
          .withField(new QFieldMetaData("retainDaily", QFieldType.INTEGER).withDefaultValue(7))

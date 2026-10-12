@@ -85,6 +85,20 @@
          <scope>test</scope>
       </dependency>
 
+      <!-- optional: the BackupsHealthIndicator (apps without qqq-middleware-health never load it) -->
+      <dependency>
+         <groupId>com.kingsrook.qqq</groupId>
+         <artifactId>qqq-middleware-health</artifactId>
+         <optional>true</optional>
+      </dependency>
+
+      <!-- optional: ESB events (apps without qqq-esb never load it) -->
+      <dependency>
+         <groupId>com.kingsrook.qqq</groupId>
+         <artifactId>qqq-esb</artifactId>
+         <optional>true</optional>
+      </dependency>
+
       <dependency>
          <groupId>org.junit.jupiter</groupId>
          <artifactId>junit-jupiter</artifactId>
