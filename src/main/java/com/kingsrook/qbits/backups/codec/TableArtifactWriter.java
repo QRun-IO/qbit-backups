@@ -22,9 +22,11 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.function.Consumer;
 import java.util.zip.GZIPOutputStream;
 import com.kingsrook.qbits.backups.storage.BackupStorage;
 import com.kingsrook.qbits.backups.storage.WriteOptions;
@@ -64,6 +66,10 @@ public class TableArtifactWriter implements Closeable
    private long                totalRows  = 0;
    private String              firstKeyOfTable;
    private String              lastKeyOfTable;
+
+   private Consumer<PartResult> partListener;
+   private String               objectLockMode;
+   private Instant              objectLockUntil;
 
 
 
@@ -118,6 +124,63 @@ public class TableArtifactWriter implements Closeable
       {
          throw (new IllegalArgumentException("Unsupported compression: " + compression));
       }
+   }
+
+
+
+   /*******************************************************************************
+    ** Be told about each part as it is committed to storage (so the catalog records
+    ** a part the moment it is complete, which is what a resume starts from).
+    *******************************************************************************/
+   public TableArtifactWriter withPartListener(Consumer<PartResult> partListener)
+   {
+      this.partListener = partListener;
+      return (this);
+   }
+
+
+
+   /*******************************************************************************
+    ** Apply an object lock to every part written.
+    *******************************************************************************/
+   public TableArtifactWriter withObjectLock(String mode, Instant until)
+   {
+      this.objectLockMode = mode;
+      this.objectLockUntil = until;
+      return (this);
+   }
+
+
+
+   /*******************************************************************************
+    ** Continue after parts that were already written (resume): numbering carries on
+    ** after them and the table totals include them.  The caller then feeds the rows
+    ** hash with seedRowsHash.
+    *******************************************************************************/
+   public void resumeFrom(List<PartResult> priorParts)
+   {
+      if(priorParts.isEmpty())
+      {
+         return;
+      }
+      parts.addAll(priorParts);
+      partNumber = priorParts.get(priorParts.size() - 1).partNumber();
+      for(PartResult part : priorParts)
+      {
+         totalRows += part.rows();
+      }
+      firstKeyOfTable = priorParts.get(0).firstKey();
+      lastKeyOfTable = priorParts.get(priorParts.size() - 1).lastKey();
+   }
+
+
+
+   /*******************************************************************************
+    ** Feed already-written canonical JSONL bytes into the rows hash (resume).
+    *******************************************************************************/
+   public void seedRowsHash(byte[] bytes, int offset, int length)
+   {
+      rowsDigest.update(bytes, offset, length);
    }
 
 
@@ -245,6 +308,10 @@ public class TableArtifactWriter implements Closeable
       WriteOptions options = WriteOptions.create().withContentType("application/octet-stream")
          .withMetadata("qqq-backup-run", runKey)
          .withMetadata("qqq-backup-table", table.getName());
+      if(objectLockMode != null)
+      {
+         options.withObjectLock(objectLockMode, objectLockUntil);
+      }
       OutputStream toStorage = storage.openWrite(current.key, options);
       current.stored = new HashingOutputStream(toStorage);
       OutputStream transformed = transform.wrap(current.stored);
@@ -266,9 +333,14 @@ public class TableArtifactWriter implements Closeable
    private void closePart() throws IOException
    {
       current.raw.close();
-      parts.add(new PartResult(partNumber, current.key, current.rows, current.raw.getCount(), current.stored.getCount(),
+      PartResult result = new PartResult(partNumber, current.key, current.rows, current.raw.getCount(), current.stored.getCount(),
          current.raw.getSha256(), current.stored.getSha256(), current.firstKey, current.lastKey, transform.encrypts(),
-         csv ? "CSV" : "JSONL", gzip ? "GZIP" : "NONE"));
+         csv ? "CSV" : "JSONL", gzip ? "GZIP" : "NONE");
+      parts.add(result);
       current = null;
+      if(partListener != null)
+      {
+         partListener.accept(result);
+      }
    }
 }

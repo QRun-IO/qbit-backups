@@ -52,6 +52,8 @@ public class BackupRunRequest
    private Clock                      clock           = Clock.systemUTC();
    private BooleanSupplier            cancelRequested = () -> false;
    private java.util.function.Function<String, BackupStorage> sourceResolver;
+   private Integer                    existingRunId;
+   private ResumeState                resume;
 
 
 
@@ -408,6 +410,49 @@ public class BackupRunRequest
    public BackupRunRequest withSourceResolver(java.util.function.Function<String, BackupStorage> sourceResolver)
    {
       this.sourceResolver = sourceResolver;
+      return (this);
+   }
+
+
+
+   /*******************************************************************************
+    ** Getter for existingRunId: a run row the coordinator already created (QUEUED,
+    ** then claimed RUNNING); the engine then updates it instead of inserting one.
+    *******************************************************************************/
+   public Integer getExistingRunId()
+   {
+      return (existingRunId);
+   }
+
+
+
+   /*******************************************************************************
+    ** Fluent setter for existingRunId
+    *******************************************************************************/
+   public BackupRunRequest withExistingRunId(Integer existingRunId)
+   {
+      this.existingRunId = existingRunId;
+      return (this);
+   }
+
+
+
+   /*******************************************************************************
+    ** Getter for resume: what an earlier, failed attempt of this run already wrote.
+    *******************************************************************************/
+   public ResumeState getResume()
+   {
+      return (resume);
+   }
+
+
+
+   /*******************************************************************************
+    ** Fluent setter for resume
+    *******************************************************************************/
+   public BackupRunRequest withResume(ResumeState resume)
+   {
+      this.resume = resume;
       return (this);
    }
 }
