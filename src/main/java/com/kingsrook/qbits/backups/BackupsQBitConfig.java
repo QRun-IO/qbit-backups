@@ -19,6 +19,9 @@ package com.kingsrook.qbits.backups;
 
 import java.util.List;
 import java.util.function.Function;
+import java.util.function.Predicate;
+import com.kingsrook.qbits.backups.codec.ArtifactTransform;
+import com.kingsrook.qbits.backups.verify.ScratchTarget;
 import com.kingsrook.qbits.backups.storage.BackupStorage;
 import com.kingsrook.qqq.backend.core.model.metadata.QInstance;
 import com.kingsrook.qqq.backend.core.model.metadata.qbits.QBitConfig;
@@ -51,6 +54,12 @@ public class BackupsQBitConfig implements QBitConfig
    private Boolean prometheusEndpoint      = false;
 
    private Function<String, BackupStorage> storageResolver;
+
+   private Integer                          fileReverifyDays  = 30;
+   private Function<String, ArtifactTransform> artifactTransformResolver;
+   private ScratchTarget                    scratchTarget;
+   private Predicate<String>                planOwnerValidator;
+   private String                           esbDestinationName;
 
 
 
@@ -312,6 +321,111 @@ public class BackupsQBitConfig implements QBitConfig
    public BackupsQBitConfig withStorageResolver(Function<String, BackupStorage> storageResolver)
    {
       this.storageResolver = storageResolver;
+      return (this);
+   }
+
+   /*******************************************************************************
+    ** Getter for fileReverifyDays: CONTENT verification skips file-store objects
+    ** verified more recently than this.
+    *******************************************************************************/
+   public Integer getFileReverifyDays()
+   {
+      return (fileReverifyDays);
+   }
+
+
+
+   /*******************************************************************************
+    ** Fluent setter for fileReverifyDays
+    *******************************************************************************/
+   public BackupsQBitConfig withFileReverifyDays(Integer fileReverifyDays)
+   {
+      this.fileReverifyDays = fileReverifyDays;
+      return (this);
+   }
+
+
+
+   /*******************************************************************************
+    ** Getter for artifactTransformResolver (the decrypt hook for verify)
+    *******************************************************************************/
+   public Function<String, ArtifactTransform> getArtifactTransformResolver()
+   {
+      return (artifactTransformResolver);
+   }
+
+
+
+   /*******************************************************************************
+    ** Fluent setter for artifactTransformResolver: encryption key reference (the name
+    ** of a key in a key provider) to the transform that decrypts what that key wrote.
+    *******************************************************************************/
+   public BackupsQBitConfig withArtifactTransformResolver(Function<String, ArtifactTransform> artifactTransformResolver)
+   {
+      this.artifactTransformResolver = artifactTransformResolver;
+      return (this);
+   }
+
+
+
+   /*******************************************************************************
+    ** Getter for scratchTarget (where TEST_RESTORE restores to; null means MEMORY)
+    *******************************************************************************/
+   public ScratchTarget getScratchTarget()
+   {
+      return (scratchTarget);
+   }
+
+
+
+   /*******************************************************************************
+    ** Fluent setter for scratchTarget
+    *******************************************************************************/
+   public BackupsQBitConfig withScratchTarget(ScratchTarget scratchTarget)
+   {
+      this.scratchTarget = scratchTarget;
+      return (this);
+   }
+
+
+
+   /*******************************************************************************
+    ** Getter for planOwnerValidator (true when the owner still exists and holds backups.admin)
+    *******************************************************************************/
+   public Predicate<String> getPlanOwnerValidator()
+   {
+      return (planOwnerValidator);
+   }
+
+
+
+   /*******************************************************************************
+    ** Fluent setter for planOwnerValidator: with none, plan owners are not checked.
+    *******************************************************************************/
+   public BackupsQBitConfig withPlanOwnerValidator(Predicate<String> planOwnerValidator)
+   {
+      this.planOwnerValidator = planOwnerValidator;
+      return (this);
+   }
+
+
+
+   /*******************************************************************************
+    ** Getter for esbDestinationName (ESB events are published here, when set)
+    *******************************************************************************/
+   public String getEsbDestinationName()
+   {
+      return (esbDestinationName);
+   }
+
+
+
+   /*******************************************************************************
+    ** Fluent setter for esbDestinationName
+    *******************************************************************************/
+   public BackupsQBitConfig withEsbDestinationName(String esbDestinationName)
+   {
+      this.esbDestinationName = esbDestinationName;
       return (this);
    }
 

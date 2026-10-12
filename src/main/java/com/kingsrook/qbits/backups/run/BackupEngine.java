@@ -35,6 +35,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kingsrook.qbits.backups.BackupsRuntime;
 import com.kingsrook.qbits.backups.alerts.BackupAlertSink;
 import com.kingsrook.qbits.backups.codec.HashingOutputStream;
+import com.kingsrook.qbits.backups.events.BackupEvents;
 import com.kingsrook.qbits.backups.codec.TableArtifactWriter;
 import com.kingsrook.qbits.backups.files.FileCopier;
 import com.kingsrook.qbits.backups.files.FileReference;
@@ -561,6 +562,7 @@ public class BackupEngine
 
       BackupAlertSink sink = BackupsRuntime.getAlertSink();
       String planKey = request.getSettings().planKey();
+      BackupEvents.runFinished(planKey, result.getRunKey(), status, result.getRows(), result.getBytesStored());
       if(ok)
       {
          sink.resolve("backups.run.failed", "backups.run.failed:" + planKey);
