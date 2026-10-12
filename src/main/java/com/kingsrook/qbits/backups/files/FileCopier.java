@@ -57,6 +57,8 @@ public class FileCopier
    private final FileStoreRegistry               registry;
    private final boolean                         referenceOnly;
    private final String                          runKey;
+   private String                                objectLockMode;
+   private java.time.Instant                     objectLockUntil;
 
 
 
@@ -120,6 +122,19 @@ public class FileCopier
 
 
    /*******************************************************************************
+    ** Lock every object this copier writes (a server-side copy cannot set a lock,
+    ** so with a lock the bytes are streamed instead).
+    *******************************************************************************/
+   public FileCopier withObjectLock(String mode, java.time.Instant until)
+   {
+      this.objectLockMode = mode;
+      this.objectLockUntil = until;
+      return (this);
+   }
+
+
+
+   /*******************************************************************************
     ** The content-addressed key for a hash: prefix/ab/cd/sha256.
     *******************************************************************************/
    public static String casKey(String casPrefix, String sha256)
@@ -177,7 +192,7 @@ public class FileCopier
     *******************************************************************************/
    private String copy(BackupStorage source, FileReference ref, String key) throws IOException
    {
-      if(source == destination && !transform.encrypts())
+      if(source == destination && !transform.encrypts() && objectLockMode == null)
       {
          destination.copy(ref.key(), key);
          return (null);
@@ -185,6 +200,10 @@ public class FileCopier
 
       WriteOptions options = WriteOptions.create().withContentType(ref.contentType() == null ? "application/octet-stream" : ref.contentType())
          .withMetadata("qqq-backup-run", runKey);
+      if(objectLockMode != null)
+      {
+         options.withObjectLock(objectLockMode, objectLockUntil);
+      }
       try(InputStream in = source.openRead(ref.key());
           HashingOutputStream plain = new HashingOutputStream(transform.wrap(destination.openWrite(key, options))))
       {
