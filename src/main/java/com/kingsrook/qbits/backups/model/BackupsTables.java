@@ -31,7 +31,12 @@ import com.kingsrook.qqq.backend.core.actions.customizers.TableCustomizers;
 import com.kingsrook.qqq.backend.core.model.metadata.code.QCodeReferenceWithProperties;
 import com.kingsrook.qqq.backend.core.scheduler.processes.BaseSyncToScheduledJobTableCustomizer;
 import com.kingsrook.qqq.backend.core.model.metadata.code.QCodeReference;
+import com.kingsrook.qqq.backend.core.actions.dashboard.widgets.ChildRecordListRenderer;
+import com.kingsrook.qqq.backend.core.model.actions.tables.query.QFilterOrderBy;
+import com.kingsrook.qqq.backend.core.model.metadata.dashboard.QWidgetMetaData;
 import com.kingsrook.qqq.backend.core.model.metadata.fields.QFieldMetaData;
+import com.kingsrook.qqq.backend.core.model.metadata.tables.QFieldSection;
+import com.kingsrook.qqq.backend.core.model.metadata.tables.Tier;
 import com.kingsrook.qqq.backend.core.model.metadata.fields.QFieldType;
 import com.kingsrook.qqq.backend.core.model.metadata.joins.JoinOn;
 import com.kingsrook.qqq.backend.core.model.metadata.joins.JoinType;
@@ -70,7 +75,7 @@ public final class BackupsTables
    public static final List<String> PROCESS_WRITTEN = List.of(RUN, ARTIFACT, VERIFICATION, RESTORE_RUN, RESTORE_RUN_TABLE, FILE_OBJECT, ID_MAP);
 
    /** The tables shown in the nav (sub-tables appear as relations on their parents). */
-   public static final List<String> NAV_TABLES = List.of(PLAN, RUN, RESTORE_RUN, VERIFICATION, FILE_OBJECT);
+   public static final List<String> NAV_TABLES = List.of(PLAN, RUN, RESTORE_RUN, VERIFICATION);
 
    public static final List<String> ALL = List.of(PLAN, PLAN_SCOPE, RUN, ARTIFACT, VERIFICATION, RESTORE_RUN, RESTORE_RUN_TABLE, FILE_OBJECT, ID_MAP);
 
@@ -210,7 +215,111 @@ public final class BackupsTables
    public static List<QTableMetaData> tables(BackupsQBitConfig config)
    {
       return (List.of(plan(config), planScope(config), run(config), artifact(config), verification(config),
-         restoreRun(config), restoreRunTable(config), fileObject(config), idMap(config)));
+         restoreRun(config), restoreRunTable(config), fileObject(config), idMap(config)).stream().map(BackupsTables::withSections).toList());
+   }
+
+
+
+   /*******************************************************************************
+    ** Group a table's fields into record-screen sections (the identity and status
+    ** first, then one section per concern, then the system fields), so a record reads
+    ** as a few short groups instead of one long list.  Fields not named here land in
+    ** the last section.
+    *******************************************************************************/
+   static QTableMetaData withSections(QTableMetaData table)
+   {
+      List<Object[]> layout = switch(table.getName())
+      {
+         case PLAN -> List.of(
+            new Object[] { "plan", "Plan", "backup", Tier.T1, "name", "description", "planKey", "isActive", "scopeType", "slaStatus", "lastSuccessDate", "lastVerifiedDate" },
+            new Object[] { "schedule", "Schedule and SLA", "schedule", Tier.T2, "cronExpression", "cronTimeZoneId", "scheduledJobId", "slaHours", "verifySlaDays", "verifyCronExpression", "verifyLevel" },
+            new Object[] { "where", "Scope and storage", "storage", Tier.T2, "includeRoles", "storageBucketAlias", "pruneBucketAlias", "prefix", "critical", "consistency", "useReadReplica", "incrementalMode", "nativeDump" },
+            new Object[] { "format", "Format and safety", "shield", Tier.T2, "format", "compression", "encryptionMode", "encryptionKeyRef", "sensitiveFieldPolicy", "heavyFieldPolicy", "fileObjectPolicy", "fileMissingPolicy" },
+            new Object[] { "retention", "Retention and lock", "lock_clock", Tier.T2, "retainDaily", "retainWeekly", "retainMonthly", "retainYearly", "retainMinimum", "objectLockMode", "objectLockDays" },
+            new Object[] { "system", "Limits and history", "history", Tier.T3, "maxDurationMinutes", "pageSize", "targetPartBytes", "ownerUserId", "lastRunId", "lastSuccessRunId", "lastVerifiedRunId", "id", "createDate", "modifyDate" });
+         case RUN -> List.of(
+            new Object[] { "run", "Run", "history", Tier.T1, "runKey", "backupPlanId", "status", "trigger", "startDate", "endDate", "durationMs", "errorMessage" },
+            new Object[] { "volume", "Rows and size", "data_usage", Tier.T2, "tablesPlanned", "tablesDone", "rowsTotal", "bytesRaw", "bytesStored", "consistencyAchieved", "warningCount" },
+            new Object[] { "files", "Files", "attach_file", Tier.T2, "filesReferenced", "filesCopied", "filesDeduplicated", "filesMissing", "fileBytesCopied", "fileBytesReferenced" },
+            new Object[] { "storage", "Storage and integrity", "storage", Tier.T2, "storageBucketAlias", "runPrefix", "manifestKey", "manifestSha256", "snapshotId", "schemaFingerprint", "securityScope", "encryptionKeyRef", "encryptionKeyFingerprint", "verificationStatus" },
+            new Object[] { "retention", "Retention", "lock_clock", Tier.T2, "retentionClass", "lockedUntil", "prunedDate", "prunedByUserId" },
+            new Object[] { "system", "System", "settings", Tier.T3, "requestedByUserId", "heartbeatDate", "qqqVersion", "appVersion", "instanceName", "errorDetail", "id", "createDate", "modifyDate" });
+         case VERIFICATION -> List.of(
+            new Object[] { "result", "Result", "verified", Tier.T1, "backupRunId", "level", "status", "tablesChecked", "rowsChecked", "mismatches", "scratchTarget", "startDate", "endDate" },
+            new Object[] { "system", "Detail", "settings", Tier.T3, "trigger", "requestedByUserId", "detailJson", "id", "createDate", "modifyDate" });
+         case RESTORE_RUN -> List.of(
+            new Object[] { "restore", "Restore", "restore", Tier.T1, "sourceBackupRunId", "status", "mode", "idStrategy", "matchOn", "targetInstanceName", "startDate", "endDate", "errorMessage" },
+            new Object[] { "rows", "Rows", "table_rows", Tier.T2, "rowsInserted", "rowsUpdated", "rowsUnchanged", "rowsDeleted", "rowsSkipped", "rowsErrored", "sequencesResynced" },
+            new Object[] { "files", "Files", "attach_file", Tier.T2, "filesRestored", "filesAlreadyPresent", "filesConflicting", "filesMissingFromBackup", "fileBytesRestored" },
+            new Object[] { "system", "Safety and system", "settings", Tier.T3, "preRestoreBackupRunId", "scopeSummary", "automationsSuppressed", "esbSuppressed", "confirmationText", "requestedByUserId", "id", "createDate", "modifyDate" });
+         default -> List.of();
+      };
+      if(layout.isEmpty())
+      {
+         return (table);
+      }
+      java.util.Set<String> placed = new java.util.HashSet<>();
+      for(int i = 0; i < layout.size(); i++)
+      {
+         Object[]     spec   = layout.get(i);
+         List<String> fields = new ArrayList<>();
+         for(int f = 4; f < spec.length; f++)
+         {
+            fields.add((String) spec[f]);
+         }
+         if(i == layout.size() - 1)
+         {
+            table.getFields().keySet().stream().filter(name -> !placed.contains(name) && !fields.contains(name)).forEach(fields::add);
+         }
+         placed.addAll(fields);
+         table.withSection(new QFieldSection((String) spec[0], (String) spec[1], new QIcon((String) spec[2]), (Tier) spec[3], fields));
+      }
+      for(ChildList childList : CHILD_LISTS)
+      {
+         if(childList.parent().equals(table.getName()))
+         {
+            table.withSection(new QFieldSection(childList.key(), new QIcon(childList.icon()), Tier.T2).withLabel(childList.label()).withWidgetName(childList.joinName()));
+         }
+      }
+      return (table);
+   }
+
+
+
+   /** A child list on a parent record: its join, the columns shown, and the order. */
+   record ChildList(String parent, String joinName, String key, String label, String icon, int maxRows, boolean canAdd, String orderField, List<String> columns)
+   {
+   }
+
+   /** The relations shown on the record screens (sub-tables are child lists here, not in the nav). */
+   static final List<ChildList> CHILD_LISTS = List.of(
+      new ChildList(PLAN, "backupsPlanScopeJoinPlan", "scopeRules", "Scope rules", "rule", 50, true, "id", List.of("action", "selectorType", "selectorValue", "includeAssociatedChildren", "fieldExclusions")),
+      new ChildList(PLAN, "backupsRunJoinPlan", "runs", "Runs", "history", 10, false, "id", List.of("runKey", "status", "startDate", "durationMs", "rowsTotal", "bytesStored")),
+      new ChildList(RUN, "backupsArtifactJoinRun", "artifacts", "Artifacts", "inventory_2", 100, false, "id", List.of("tableName", "artifactType", "partNumber", "rowCount", "bytesStored", "status")),
+      new ChildList(RUN, "backupsVerificationJoinRun", "verifications", "Verifications", "verified", 20, false, "id", List.of("level", "status", "tablesChecked", "rowsChecked", "mismatches", "startDate")),
+      new ChildList(RUN, "backupsRestoreRunJoinRun", "restores", "Restores", "restore", 20, false, "id", List.of("status", "mode", "startDate", "rowsInserted", "rowsUpdated", "rowsErrored")),
+      new ChildList(RESTORE_RUN, "backupsRestoreRunTableJoinRestoreRun", "restoreTables", "Tables restored", "table_rows", 100, false, "id",
+         List.of("tableName", "targetTableName", "rowsInserted", "rowsUpdated", "rowsUnchanged", "rowsErrored", "schemaStatus")));
+
+
+
+   /*******************************************************************************
+    ** The child-list widgets for the record screens (see CHILD_LISTS).  Each shows a
+    ** few readable columns, newest first, and never scrolls sideways.
+    *******************************************************************************/
+   public static List<QWidgetMetaData> widgets()
+   {
+      Map<String, QJoinMetaData> byName = new LinkedHashMap<>();
+      joins().forEach(join -> byName.put(join.getName(), join));
+      List<QWidgetMetaData> rs = new ArrayList<>();
+      for(ChildList childList : CHILD_LISTS)
+      {
+         rs.add(ChildRecordListRenderer.widgetMetaDataBuilder(byName.get(childList.joinName())).withLabel(childList.label()).withMaxRows(childList.maxRows())
+            .withCanAddChildRecord(childList.canAdd()).withOnlyIncludeFieldNames(childList.columns())
+            .withOrderBys(List.of(new QFilterOrderBy(childList.orderField(), !PLAN.equals(childList.parent()) || childList.canAdd())))
+            .getWidgetMetaData().withPermissionRules(permissionRules()));
+      }
+      return (rs);
    }
 
 
@@ -404,8 +513,6 @@ public final class BackupsTables
       return (base(config, RUN, "Backup Run", "history")
          .withRecordLabelFormatAndFields("%s", "runKey")
          .withUniqueKey(new UniqueKey("runKey"))
-         .withAssociation(new Association().withName("artifacts").withAssociatedTableName(ARTIFACT).withJoinName("backupsArtifactJoinRun"))
-         .withAssociation(new Association().withName("verifications").withAssociatedTableName(VERIFICATION).withJoinName("backupsVerificationJoinRun"))
          .withField(ro("backupPlanId", QFieldType.INTEGER).withPossibleValueSourceName(PLAN))
          .withField(ro("runKey", QFieldType.STRING))
          .withField(roEnum("trigger", "run_trigger"))
@@ -511,7 +618,6 @@ public final class BackupsTables
    {
       return (base(config, RESTORE_RUN, "Backup Restore", "restore")
          .withRecordLabelFormatAndFields("Restore %s", "id")
-         .withAssociation(new Association().withName("tables").withAssociatedTableName(RESTORE_RUN_TABLE).withJoinName("backupsRestoreRunTableJoinRestoreRun"))
          .withField(ro("sourceBackupRunId", QFieldType.INTEGER).withPossibleValueSourceName(RUN))
          .withField(ro("requestedByUserId", QFieldType.STRING))
          .withField(ro("startDate", QFieldType.DATE_TIME))

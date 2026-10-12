@@ -158,8 +158,20 @@ public class BackupsQBitProducer implements QBitMetaDataProducer<BackupsQBitConf
       {
          output.add(widget);
       }
-      output.add(com.kingsrook.qbits.backups.app.BackupsApp.app(qBitConfig, tables));
+      for(var widget : com.kingsrook.qbits.backups.model.BackupsTables.widgets())
+      {
+         output.add(widget);
+      }
+      com.kingsrook.qqq.backend.core.model.metadata.layout.QAppMetaData app = com.kingsrook.qbits.backups.app.BackupsApp.app(qBitConfig, tables);
+      output.add(app);
       output.addSelfToInstance(qInstance);
+
+      // A parent app only lists the apps that are its children, so attach ourselves (for example Admin, then Backups).
+      com.kingsrook.qqq.backend.core.model.metadata.layout.QAppMetaData parent = qBitConfig.getParentAppName() == null ? null : qInstance.getApp(qBitConfig.getParentAppName());
+      if(parent != null && (parent.getChildren() == null || parent.getChildren().stream().noneMatch(child -> app.getName().equals(child.getName()))))
+      {
+         parent.withChild(app);
+      }
       return (new com.kingsrook.qqq.backend.core.model.metadata.MetaDataProducerMultiOutput());
    }
 

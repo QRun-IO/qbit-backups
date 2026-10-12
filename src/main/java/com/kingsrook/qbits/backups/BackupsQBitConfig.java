@@ -45,6 +45,7 @@ public class BackupsQBitConfig implements QBitConfig
    private String appName  = "backups";
    private String appLabel = "Backups";
    private String parentAppName;
+   private String tablePathPrefix;
    private String schedulerName;
    private String instanceName;
 
@@ -174,6 +175,28 @@ public class BackupsQBitConfig implements QBitConfig
    public BackupsQBitConfig withParentAppName(String parentAppName)
    {
       this.parentAppName = parentAppName;
+      return (this);
+   }
+
+
+
+   /*******************************************************************************
+    ** Getter for tablePathPrefix (the front of the links the home makes to tables and
+    ** records, "/app" for the Next dashboard, which routes /app/{table}/{id}).
+    *******************************************************************************/
+   public String getTablePathPrefix()
+   {
+      return (tablePathPrefix == null ? "/app" : tablePathPrefix);
+   }
+
+
+
+   /*******************************************************************************
+    ** Fluent setter for tablePathPrefix
+    *******************************************************************************/
+   public BackupsQBitConfig withTablePathPrefix(String tablePathPrefix)
+   {
+      this.tablePathPrefix = tablePathPrefix;
       return (this);
    }
 

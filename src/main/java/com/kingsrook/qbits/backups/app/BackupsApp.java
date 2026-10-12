@@ -62,7 +62,7 @@ public final class BackupsApp
    public static List<QWidgetMetaData> widgets()
    {
       return (List.of(
-         new QWidgetMetaData().withName(HOME_WIDGET).withLabel("Backups").withType(WidgetType.HTML.getType())
+         new QWidgetMetaData().withName(HOME_WIDGET).withLabel("Overview").withType(WidgetType.HTML.getType())
             .withCodeReference(new QCodeReference(HomeRenderer.class)).withGridColumns(12).withIsCard(false).withPermissionRules(BackupsTables.permissionRules()),
          new QWidgetMetaData().withName(HEALTH_CARD_WIDGET).withLabel("Backups").withType(WidgetType.HTML.getType())
             .withCodeReference(new QCodeReference(HealthCardRenderer.class)).withGridColumns(12).withIsCard(true).withPermissionRules(BackupsTables.permissionRules())));
@@ -84,9 +84,7 @@ public final class BackupsApp
          .withSection(new QAppSection().withName("backups").withLabel("Backups").withIcon(new QIcon("backup"))
             .withTables(List.of(BackupsTables.PLAN, BackupsTables.RUN)))
          .withSection(new QAppSection().withName("recovery").withLabel("Restore and verify").withIcon(new QIcon("restore"))
-            .withTables(List.of(BackupsTables.RESTORE_RUN, BackupsTables.VERIFICATION)))
-         .withSection(new QAppSection().withName("files").withLabel("Files").withIcon(new QIcon("attach_file"))
-            .withTables(List.of(BackupsTables.FILE_OBJECT)));
+            .withTables(List.of(BackupsTables.RESTORE_RUN, BackupsTables.VERIFICATION)));
       if(config.getParentAppName() != null)
       {
          app.setParentAppName(config.getParentAppName());
@@ -143,10 +141,6 @@ public final class BackupsApp
    static String pathPrefix()
    {
       var config = com.kingsrook.qbits.backups.BackupsRuntime.getConfig();
-      if(config == null)
-      {
-         return ("/backups");
-      }
-      return (config.getParentAppName() != null ? "/" + config.getParentAppName() + "/" + config.getAppName() : "/" + config.getAppName());
+      return (config == null ? "/app" : config.getTablePathPrefix());
    }
 }
