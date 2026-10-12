@@ -141,6 +141,11 @@ public class BackupsQBitProducer implements QBitMetaDataProducer<BackupsQBitConf
          process.setSourceQBitName(qBit.getName());
          output.add(process);
       }
+      for(var process : com.kingsrook.qbits.backups.processes.ExportTableProcess.exportProcesses(qInstance))
+      {
+         process.setSourceQBitName(qBit.getName());
+         output.add(process);
+      }
       for(var widget : com.kingsrook.qbits.backups.app.BackupsApp.widgets())
       {
          output.add(widget);

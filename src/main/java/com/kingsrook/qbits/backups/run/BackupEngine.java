@@ -52,6 +52,7 @@ import com.kingsrook.qqq.backend.core.model.metadata.QInstance;
 import com.kingsrook.qqq.backend.core.model.metadata.fields.QFieldMetaData;
 import com.kingsrook.qqq.backend.core.model.metadata.fields.QFieldType;
 import com.kingsrook.qqq.backend.core.model.metadata.tables.QTableMetaData;
+import com.kingsrook.qqq.backend.core.utils.ValueUtils;
 import static com.kingsrook.qqq.backend.core.logging.LogUtils.logPair;
 
 
@@ -89,10 +90,10 @@ public class BackupEngine
    {
       BackupRunResult result  = new BackupRunResult();
       Instant         started = request.getClock().instant();
-      String          runKey  = RUN_KEY_FORMAT.format(started) + "-" + UUID.randomUUID().toString().substring(0, 4);
+      String          runKey  = request.getResume() != null ? request.getResume().runKey() : RUN_KEY_FORMAT.format(started) + "-" + UUID.randomUUID().toString().substring(0, 4);
       String          planPrefix = request.getSettings().string("prefix", "qqq-backups");
       String          instancePrefix = trimSlashes(planPrefix) + "/" + request.getInstanceName() + "/";
-      String          runPrefix  = instancePrefix + request.getSettings().planKey() + "/" + DATE_PATH.format(started) + "/" + runKey + "/";
+      String          runPrefix  = request.getResume() != null ? request.getResume().runPrefix() : instancePrefix + request.getSettings().planKey() + "/" + DATE_PATH.format(started) + "/" + runKey + "/";
       result.setRunKey(runKey);
       result.setRunPrefix(runPrefix);
 
@@ -115,7 +116,24 @@ public class BackupEngine
          runValues.put("encryptionKeyRef", request.getEncryptionKeyRef());
          runValues.put("encryptionKeyFingerprint", request.getEncryptionKeyFingerprint());
          runValues.put("verificationStatus", "UNVERIFIED");
-         result.setRunId(catalog.insert(BackupsTables.RUN, runValues));
+         if(request.getResume() != null)
+         {
+            ///////////////////////////////////////////////////////////////////////////////
+            // a resume carries on the original attempt: keep its start, clear its error //
+            ///////////////////////////////////////////////////////////////////////////////
+            runValues.remove("startDate");
+            runValues.put("endDate", null);
+            runValues.put("errorMessage", null);
+         }
+         if(request.getExistingRunId() != null)
+         {
+            catalog.update(BackupsTables.RUN, request.getExistingRunId(), runValues);
+            result.setRunId(request.getExistingRunId());
+         }
+         else
+         {
+            result.setRunId(catalog.insert(BackupsTables.RUN, runValues));
+         }
       }
       catch(Exception e)
       {
@@ -169,10 +187,32 @@ public class BackupEngine
          throw (new IllegalStateException("The sensitive field policy INCLUDE_ENCRYPTED_ONLY requires client-side encryption."));
       }
       String consistency = consistencyFor(settings.string("consistency", "SNAPSHOT_PREFERRED"), result);
+      catalog.update(BackupsTables.RUN, result.getRunId(), Map.of("consistencyAchieved", result.getConsistencyAchieved()));
+
+      //////////////////////////////////////////////////////////////////////////////////////
+      // object lock is applied at write time, to every object of the run (spec 10.3)     //
+      //////////////////////////////////////////////////////////////////////////////////////
+      String  lockMode    = settings.string("objectLockMode", "NONE");
+      Instant retainUntil = null;
+      if(!"NONE".equals(lockMode))
+      {
+         if(!storage.capabilities().contains(BackupStorage.StorageCapability.OBJECT_LOCK))
+         {
+            throw (new IllegalStateException("The plan asks for object lock " + lockMode + ", but the storage bucket does not support object lock."));
+         }
+         retainUntil = started.plus(java.time.Duration.ofDays(Math.max(1, settings.integer("objectLockDays", 1))));
+      }
+      else
+      {
+         lockMode = null;
+      }
+      final String  fileLockMode    = lockMode;
+      final Instant fileRetainUntil = retainUntil;
 
       Function<String, BackupStorage> sourceResolver = request.getSourceResolver() != null ? request.getSourceResolver() : alias -> storage;
       FileCopier copier = new FileCopier(sourceResolver, request.getBucketAlias(), storage, instancePrefix + "_files/sha256/", request.getTransform(),
-         catalog.fileStoreRegistry(request.getBucketAlias(), result.getRunId(), request.getEncryptionKeyFingerprint()), !copyFiles, result.getRunKey());
+         catalog.fileStoreRegistry(request.getBucketAlias(), result.getRunId(), request.getEncryptionKeyFingerprint()), !copyFiles, result.getRunKey())
+         .withObjectLock(lockMode, retainUntil);
 
       List<BackupManifest.TableEntry> manifestTables = new ArrayList<>();
       List<String>                    checksums      = new ArrayList<>();
@@ -199,65 +239,131 @@ public class BackupEngine
             List<BackupManifest.ExcludedField> excluded = excludedFields(table, resolved, sensitivePolicy, settings.string("heavyFieldPolicy", "INLINE"));
             List<String> excludedNames = excluded.stream().map(BackupManifest.ExcludedField::name).toList();
 
+            ResumeState.TableState prior = request.getResume() == null ? null : request.getResume().table(table.getName());
+
             List<TableArtifactWriter> writers = new ArrayList<>();
             String tablePrefix = runPrefix + "tables/" + table.getName() + "/";
-            for(String f : "JSONL_AND_CSV".equals(format) ? List.of("JSONL", "CSV") : List.of("CSV".equals(format) ? "CSV" : "JSONL"))
-            {
-               writers.add(new TableArtifactWriter(storage, tablePrefix, table, excludedNames, f, compression, settings.targetPartBytes(), MAX_ROWS_PER_PART,
-                  request.getTransform(), result.getRunKey()));
-            }
+            Map<TableArtifactWriter, Integer> lastArtifactIds = new LinkedHashMap<>();
 
             List<FileReference> references = new ArrayList<>();
             long[]              counter    = { 0 };
             Instant             deadline   = started.plusMillis(maxMillis);
-            Throwable[]         writeError = { null };
+            String              rowsHash   = null;
+            List<TableArtifactWriter.PartResult> allResults = new ArrayList<>();
+            boolean wantsReferences = copyFiles || "REFERENCE_ONLY".equals(settings.fileObjectPolicy());
 
-            request.getReader().read(table, resolved.filterJson(), null, settings.pageSize(), null, record ->
+            if(prior != null && prior.complete())
             {
-               try
+               ////////////////////////////////////////////////////////////////////////////////
+               // resume: this table finished before the failure.  Keep its parts, and only  //
+               // walk its rows again for the file references (the index is rebuilt)         //
+               ////////////////////////////////////////////////////////////////////////////////
+               if(wantsReferences)
                {
-                  for(TableArtifactWriter writer : writers)
+                  collectReferences(request, table, resolved.filterJson(), null, references);
+               }
+               allResults.addAll(prior.parts());
+               rowsHash = prior.rowsHash();
+               counter[0] = prior.rows();
+            }
+            else
+            {
+               for(String f : "JSONL_AND_CSV".equals(format) ? List.of("JSONL", "CSV") : List.of("CSV".equals(format) ? "CSV" : "JSONL"))
+               {
+                  TableArtifactWriter writer = new TableArtifactWriter(storage, tablePrefix, table, excludedNames, f, compression, settings.targetPartBytes(), MAX_ROWS_PER_PART,
+                     request.getTransform(), result.getRunKey()).withObjectLock(fileLockMode, fileRetainUntil);
+                  writer.withPartListener(part ->
                   {
-                     writer.write(record);
-                  }
+                     try
+                     {
+                        lastArtifactIds.put(writer, catalog.insertArtifact(result.getRunId(), "TABLE_DATA", table.getName(), part.partNumber(), part.key().substring(runPrefix.length()),
+                           part.format(), part.compression(), part.encrypted(), part.rows(), part.bytesRaw(), part.bytesStored(), part.sha256Stored(), part.sha256Raw(), null,
+                           part.firstKey(), part.lastKey(), TableFingerprints.of(table, backendType)));
+                     }
+                     catch(Exception e)
+                     {
+                        throw (new IllegalStateException("Could not record a part of " + table.getName() + ": " + e.getMessage(), e));
+                     }
+                  });
+                  writers.add(writer);
                }
-               catch(IOException e)
-               {
-                  throw (new IllegalStateException("Could not write a row of " + table.getName() + ": " + e.getMessage(), e));
-               }
-               if(copyFiles || "REFERENCE_ONLY".equals(settings.fileObjectPolicy()))
-               {
-                  for(FileReferenceProvider provider : request.getFileProviders())
-                  {
-                     references.addAll(provider.referencesIn(table, record));
-                  }
-               }
-               counter[0]++;
-               if(counter[0] % settings.pageSize() == 0)
-               {
-                  heartbeat(request, result, deadline, table.getName(), counter[0]);
-               }
-            });
 
-            String       rowsHash = null;
+               Serializable startAfter = null;
+               if(prior != null && !prior.parts().isEmpty())
+               {
+                  boolean canContinue = writers.size() == 1 && "JSONL".equals(format) && !request.getTransform().encrypts();
+                  if(canContinue)
+                  {
+                     TableArtifactWriter writer = writers.get(0);
+                     writer.resumeFrom(prior.parts());
+                     seedRowsHash(storage, runPrefix, prior.parts(), writer);
+                     lastArtifactIds.put(writer, prior.artifactIds().get(prior.artifactIds().size() - 1));
+                     startAfter = ValueUtils.getValueAsFieldType(table.getField(table.getPrimaryKeyField()).getType(), prior.lastKey());
+                     counter[0] = prior.rows();
+                     if(wantsReferences)
+                     {
+                        collectReferences(request, table, resolved.filterJson(), prior.lastKey(), references);
+                     }
+                  }
+                  else
+                  {
+                     /////////////////////////////////////////////////////////////////////////
+                     // CSV, a second format or encryption cannot rebuild the rows hash from //
+                     // the parts: start this table over (its part objects are overwritten)  //
+                     /////////////////////////////////////////////////////////////////////////
+                     catalog.deleteByIds(BackupsTables.ARTIFACT, prior.artifactIds());
+                  }
+               }
+
+               request.getReader().read(table, resolved.filterJson(), startAfter, settings.pageSize(), null, record ->
+               {
+                  try
+                  {
+                     for(TableArtifactWriter writer : writers)
+                     {
+                        writer.write(record);
+                     }
+                  }
+                  catch(IOException e)
+                  {
+                     throw (new IllegalStateException("Could not write a row of " + table.getName() + ": " + e.getMessage(), e));
+                  }
+                  if(wantsReferences)
+                  {
+                     for(FileReferenceProvider provider : request.getFileProviders())
+                     {
+                        references.addAll(provider.referencesIn(table, record));
+                     }
+                  }
+                  counter[0]++;
+                  if(counter[0] % settings.pageSize() == 0)
+                  {
+                     heartbeat(request, result, deadline, table.getName(), counter[0]);
+                  }
+               });
+
+               for(TableArtifactWriter writer : writers)
+               {
+                  allResults.addAll(writer.finish());
+                  rowsHash = writer.rowsHash();
+                  Integer lastId = lastArtifactIds.get(writer);
+                  if(lastId != null)
+                  {
+                     catalog.update(BackupsTables.ARTIFACT, lastId, Map.of("rowsHash", rowsHash));
+                  }
+               }
+            }
+
             List<BackupManifest.Part> parts = new ArrayList<>();
             String fingerprint = TableFingerprints.of(table, backendType);
             fingerprints.add(fingerprint);
-            for(TableArtifactWriter writer : writers)
+            for(TableArtifactWriter.PartResult part : allResults)
             {
-               List<TableArtifactWriter.PartResult> results = writer.finish();
-               rowsHash = writer.rowsHash();
-               for(TableArtifactWriter.PartResult part : results)
-               {
-                  String relative = part.key().substring(runPrefix.length());
-                  parts.add(new BackupManifest.Part(relative, part.rows(), part.bytesRaw(), part.bytesStored(), part.sha256Stored(), part.sha256Raw(), part.format(), part.compression(), part.encrypted()));
-                  checksums.add(part.sha256Stored() + "  " + relative);
-                  bytesStored += part.bytesStored();
-                  bytesRaw += part.bytesRaw();
-                  catalog.insertArtifact(result.getRunId(), "TABLE_DATA", table.getName(), part.partNumber(), relative, part.format(), part.compression(),
-                     part.encrypted(), part.rows(), part.bytesRaw(), part.bytesStored(), part.sha256Stored(), part.sha256Raw(),
-                     part.partNumber() == results.size() ? rowsHash : null, part.firstKey(), part.lastKey(), fingerprint);
-               }
+               String relative = part.key().substring(runPrefix.length());
+               parts.add(new BackupManifest.Part(relative, part.rows(), part.bytesRaw(), part.bytesStored(), part.sha256Stored(), part.sha256Raw(), part.format(), part.compression(), part.encrypted()));
+               checksums.add(part.sha256Stored() + "  " + relative);
+               bytesStored += part.bytesStored();
+               bytesRaw += part.bytesRaw();
             }
             rows += counter[0];
 
@@ -265,7 +371,7 @@ public class BackupEngine
             {
                if(indexWriter == null)
                {
-                  indexWriter = new FileIndexWriter(storage, runPrefix + "files/index-00001.jsonl.gz", result.getRunKey());
+                  indexWriter = new FileIndexWriter(storage, runPrefix + "files/index-00001.jsonl.gz", result.getRunKey(), fileLockMode, fileRetainUntil);
                }
                FileCopier.IndexEntry entry = copier.process(ref);
                indexWriter.write(entry);
@@ -288,8 +394,8 @@ public class BackupEngine
             }
 
             Map<String, String> keyRange = new LinkedHashMap<>();
-            keyRange.put("min", writers.get(0).getFirstKey());
-            keyRange.put("max", writers.get(0).getLastKey());
+            keyRange.put("min", allResults.isEmpty() ? null : allResults.get(0).firstKey());
+            keyRange.put("max", allResults.isEmpty() ? null : allResults.get(allResults.size() - 1).lastKey());
             manifestTables.add(new BackupManifest.TableEntry(table.getName(), resolved.role().name(), table.getBackendName(), table.getPrimaryKeyField(),
                fingerprint, TableFingerprints.descriptor(table, backendType), resolved.filterJson(), excluded, counter[0], rowsHash, keyRange, parts, consistency));
             done++;
@@ -331,7 +437,7 @@ public class BackupEngine
       // checksums, then the manifest LAST (the commit mark) //
       /////////////////////////////////////////////////////////
       byte[] checksumBytes = (String.join("\n", checksums) + "\n").getBytes(StandardCharsets.UTF_8);
-      putBytes(storage, runPrefix + "checksums.sha256", checksumBytes, result.getRunKey());
+      putBytes(storage, runPrefix + "checksums.sha256", checksumBytes, result.getRunKey(), lockMode, retainUntil);
       catalog.insertArtifact(result.getRunId(), "CHECKSUMS", null, 1, "checksums.sha256", "TEXT", "NONE", false, checksums.size(), checksumBytes.length,
          checksumBytes.length, HashingOutputStream.sha256Hex(checksumBytes), HashingOutputStream.sha256Hex(checksumBytes), null, null, null, null);
 
@@ -351,7 +457,7 @@ public class BackupEngine
          new BackupManifest.Totals(manifestTables.size(), rows, bytesStored));
       byte[] manifestBytes = manifest.toJsonBytes();
       String manifestKey   = runPrefix + "manifest.json";
-      putBytes(storage, manifestKey, manifestBytes, result.getRunKey());
+      putBytes(storage, manifestKey, manifestBytes, result.getRunKey(), lockMode, retainUntil);
       if(storage.head(manifestKey).isEmpty())
       {
          throw (new IllegalStateException("The manifest was written but is not visible in the bucket"));
@@ -383,6 +489,7 @@ public class BackupEngine
       extra.put("filesMissing", missing);
       extra.put("fileBytesCopied", fileBytes);
       extra.put("fileBytesReferenced", fileBytesRef);
+      extra.put("lockedUntil", retainUntil);
       extra.put("tablesDone", manifestTables.size());
       extra.put("rowsTotal", rows);
       extra.put("bytesRaw", bytesRaw);
@@ -599,9 +706,14 @@ public class BackupEngine
    /*******************************************************************************
     **
     *******************************************************************************/
-   private static void putBytes(BackupStorage storage, String key, byte[] bytes, String runKey) throws IOException
+   private static void putBytes(BackupStorage storage, String key, byte[] bytes, String runKey, String lockMode, Instant retainUntil) throws IOException
    {
-      try(OutputStream out = storage.openWrite(key, WriteOptions.create().withMetadata("qqq-backup-run", runKey)))
+      WriteOptions options = WriteOptions.create().withMetadata("qqq-backup-run", runKey);
+      if(lockMode != null)
+      {
+         options.withObjectLock(lockMode, retainUntil);
+      }
+      try(OutputStream out = storage.openWrite(key, options))
       {
          out.write(bytes);
       }
@@ -635,6 +747,82 @@ public class BackupEngine
    {
       String v = QInstance.class.getPackage().getImplementationVersion();
       return (v == null ? "unknown" : v);
+   }
+
+
+
+   /*******************************************************************************
+    ** Walk a table's rows only for the file references they hold (resume: rows that
+    ** an earlier attempt already wrote to parts).  Stops after stopAfterKey (inclusive)
+    ** when given.
+    *******************************************************************************/
+   private void collectReferences(BackupRunRequest request, QTableMetaData table, String filterJson, String stopAfterKey, List<FileReference> references) throws Exception
+   {
+      String pk = table.getPrimaryKeyField();
+      try
+      {
+         request.getReader().read(table, filterJson, null, request.getSettings().pageSize(), null, record ->
+         {
+            if(stopAfterKey != null && !stopAfterKey.equals(String.valueOf(record.getValue(pk))) && keyAfter(record.getValue(pk), stopAfterKey))
+            {
+               throw (new StopReadingException());
+            }
+            for(FileReferenceProvider provider : request.getFileProviders())
+            {
+               references.addAll(provider.referencesIn(table, record));
+            }
+         });
+      }
+      catch(StopReadingException e)
+      {
+         // done: we are past the last key of the written parts
+      }
+   }
+
+
+
+   /*******************************************************************************
+    ** Whether a primary key value sorts after a key given as text.
+    *******************************************************************************/
+   @SuppressWarnings({ "unchecked", "rawtypes" })
+   private static boolean keyAfter(Serializable value, String lastKeyText)
+   {
+      if(value instanceof Number number)
+      {
+         return (new java.math.BigDecimal(number.toString()).compareTo(new java.math.BigDecimal(lastKeyText)) > 0);
+      }
+      return (String.valueOf(value).compareTo(lastKeyText) > 0);
+   }
+
+
+
+   /*******************************************************************************
+    ** Feed the rows hash of a resumed table from the parts already in storage (JSONL,
+    ** gzip or none, not encrypted: the decoded bytes are the canonical lines).
+    *******************************************************************************/
+   private static void seedRowsHash(BackupStorage storage, String runPrefix, List<TableArtifactWriter.PartResult> parts, TableArtifactWriter writer) throws IOException
+   {
+      byte[] buffer = new byte[65536];
+      for(TableArtifactWriter.PartResult part : parts)
+      {
+         try(java.io.InputStream raw = storage.openRead(part.key()); java.io.InputStream in = "GZIP".equals(part.compression()) ? new java.util.zip.GZIPInputStream(raw) : raw)
+         {
+            int n;
+            while((n = in.read(buffer)) >= 0)
+            {
+               writer.seedRowsHash(buffer, 0, n);
+            }
+         }
+      }
+   }
+
+
+
+   /***************************************************************************
+    ** Thrown from a row sink to stop a reference-only walk.
+    ***************************************************************************/
+   static class StopReadingException extends RuntimeException
+   {
    }
 
 
@@ -678,9 +866,14 @@ public class BackupEngine
       /*******************************************************************************
        ** Constructor.
        *******************************************************************************/
-      FileIndexWriter(BackupStorage storage, String key, String runKey) throws IOException
+      FileIndexWriter(BackupStorage storage, String key, String runKey, String lockMode, Instant retainUntil) throws IOException
       {
-         stored = new HashingOutputStream(storage.openWrite(key, WriteOptions.create().withMetadata("qqq-backup-run", runKey)));
+         WriteOptions options = WriteOptions.create().withMetadata("qqq-backup-run", runKey);
+         if(lockMode != null)
+         {
+            options.withObjectLock(lockMode, retainUntil);
+         }
+         stored = new HashingOutputStream(storage.openWrite(key, options));
          raw = new HashingOutputStream(new GZIPOutputStream(stored));
       }
 

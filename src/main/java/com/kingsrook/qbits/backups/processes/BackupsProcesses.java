@@ -25,9 +25,8 @@ import java.util.Map;
 import com.kingsrook.qbits.backups.BackupsRuntime;
 import com.kingsrook.qbits.backups.model.BackupsTables;
 import com.kingsrook.qbits.backups.permissions.BackupsPermissions;
-import com.kingsrook.qbits.backups.run.BackupEngine;
+import com.kingsrook.qbits.backups.run.BackupRunCoordinator;
 import com.kingsrook.qbits.backups.run.BackupRunFactory;
-import com.kingsrook.qbits.backups.run.BackupRunRequest;
 import com.kingsrook.qbits.backups.run.BackupRunResult;
 import com.kingsrook.qbits.backups.scope.ScopeResolver;
 import com.kingsrook.qqq.backend.core.exceptions.QException;
@@ -73,6 +72,7 @@ public final class BackupsProcesses
       List<QProcessMetaData> processes = new ArrayList<>();
       processes.add(permission(etl(RUN_PLAN, "Run backup now", BackupsTables.PLAN, RunPlanTransform.class, RunPlanLoad.class,
          "This is a preview of what the backup will include. Nothing is written until you continue."), BackupsPermissions.RUN));
+      processes.addAll(LifecycleProcesses.processes());
       return (processes);
    }
 
@@ -209,6 +209,7 @@ public final class BackupsProcesses
       private final ProcessSummaryLine warnings  = line(Status.WARNING, "backup finished with warnings", "backups finished with warnings",
          "backup finished with warnings", "backups finished with warnings");
       private final ProcessSummaryLine failed    = line(Status.ERROR, "backup failed", "backups failed", "backup failed", "backups failed");
+      private final ProcessSummaryLine skipped   = line(Status.WARNING, "backup did not start", "backups did not start", "backup did not start", "backups did not start");
       private final ProcessSummaryLine rows      = line(Status.INFO, "row was written", "rows were written", "row was written", "rows were written");
       private final ProcessSummaryLine files     = line(Status.INFO, "referenced file was copied or already stored", "referenced files were copied or already stored",
          "referenced file was copied or already stored", "referenced files were copied or already stored");
@@ -224,13 +225,17 @@ public final class BackupsProcesses
       {
          for(QRecord plan : input.getRecords())
          {
-            BackupRunRequest request = BackupRunFactory.forPlan(plan, "MANUAL");
-            BackupRunResult  result  = new BackupEngine().execute(request);
+            BackupRunResult result = new BackupRunCoordinator().runPlan(plan, "MANUAL");
             results.add(result);
             switch(result.getStatus())
             {
                case "SUCCEEDED" -> succeeded.incrementCountAndAddPrimaryKey(result.getRunId());
                case "SUCCEEDED_WITH_WARNINGS" -> warnings.incrementCountAndAddPrimaryKey(result.getRunId());
+               case BackupRunCoordinator.SKIPPED_CONCURRENT, BackupRunCoordinator.QUEUED ->
+               {
+                  skipped.incrementCountAndAddPrimaryKey(result.getRunId());
+                  skipped.setMessageSuffix(result.getErrorMessage() == null ? null : ": " + result.getErrorMessage());
+               }
                default ->
                {
                   failed.incrementCountAndAddPrimaryKey(result.getRunId());
@@ -255,6 +260,7 @@ public final class BackupsProcesses
          succeeded.addSelfToListIfAnyCount(lines);
          warnings.addSelfToListIfAnyCount(lines);
          failed.addSelfToListIfAnyCount(lines);
+         skipped.addSelfToListIfAnyCount(lines);
          rows.addSelfToListIfAnyCount(lines);
          files.addSelfToListIfAnyCount(lines);
          return (lines);
