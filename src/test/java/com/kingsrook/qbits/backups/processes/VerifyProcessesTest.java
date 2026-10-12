@@ -177,7 +177,8 @@ class VerifyProcessesTest
       List<ProcessSummaryLineInterface> summary = lines(output, StreamedETLWithFrontendProcess.FIELD_PROCESS_SUMMARY);
       ProcessSummaryLine failed = (ProcessSummaryLine) summary.stream().filter(l -> ((ProcessSummaryLine) l).getStatus() == Status.ERROR).findFirst().orElseThrow();
       assertThat(failed.getCount()).isEqualTo(1);
-      assertThat(failed.getMessageSuffix()).contains("corrupted");
+      // which mismatch is reported first depends on where the flipped byte lands in the gzip stream
+      assertThat(failed.getMessageSuffix()).matches("(?s).*(corrupted|cannot be parsed|checksum|could not be read).*");
       assertThat(VerifyTestSupport.run(result.getRunId()).getValueString("verificationStatus")).isEqualTo("FAILED");
    }
 
