@@ -29,7 +29,6 @@ import com.kingsrook.qqq.backend.core.model.dashboard.widgets.WidgetType;
 import com.kingsrook.qqq.backend.core.model.metadata.code.QCodeReference;
 import com.kingsrook.qqq.backend.core.model.metadata.dashboard.QWidgetMetaData;
 import com.kingsrook.qqq.backend.core.model.metadata.layout.QAppMetaData;
-import com.kingsrook.qqq.backend.core.model.metadata.layout.QAppSection;
 import com.kingsrook.qqq.backend.core.model.metadata.layout.QIcon;
 import com.kingsrook.qqq.backend.core.model.metadata.tables.QTableMetaData;
 
@@ -80,11 +79,7 @@ public final class BackupsApp
          .withLabel(config.getAppLabel())
          .withIcon(new QIcon("backup"))
          .withPermissionRules(BackupsTables.permissionRules())
-         .withWidgets(List.of(HOME_WIDGET))
-         .withSection(new QAppSection().withName("backups").withLabel("Backups").withIcon(new QIcon("backup"))
-            .withTables(List.of(BackupsTables.PLAN, BackupsTables.RUN)))
-         .withSection(new QAppSection().withName("recovery").withLabel("Restore and verify").withIcon(new QIcon("restore"))
-            .withTables(List.of(BackupsTables.RESTORE_RUN, BackupsTables.VERIFICATION)));
+         .withWidgets(List.of(HOME_WIDGET));
       if(config.getParentAppName() != null)
       {
          app.setParentAppName(config.getParentAppName());
