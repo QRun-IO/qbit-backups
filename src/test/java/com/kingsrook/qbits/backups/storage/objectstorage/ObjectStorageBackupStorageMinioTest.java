@@ -74,6 +74,7 @@ class ObjectStorageBackupStorageMinioTest
    @BeforeAll
    static void startMinio() throws Exception
    {
+      org.junit.jupiter.api.Assumptions.assumeTrue(org.testcontainers.DockerClientFactory.instance().isDockerAvailable(), "Docker is not available: skipping the MinIO tests");
       minio = new GenericContainer<>("minio/minio:latest").withCommand("server", "/data").withExposedPorts(9000)
          .withEnv("MINIO_ROOT_USER", "minioadmin").withEnv("MINIO_ROOT_PASSWORD", "minioadmin")
          .waitingFor(Wait.forHttp("/minio/health/live").forPort(9000));
