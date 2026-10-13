@@ -23,6 +23,13 @@ import java.util.List;
 import java.util.Map;
 import com.kingsrook.qbits.backups.BackupsQBitConfig;
 import com.kingsrook.qbits.backups.permissions.BackupsPermissionChecker;
+import com.kingsrook.qbits.backups.plan.BackupPlanTableCustomizer;
+import com.kingsrook.qbits.backups.schedule.BackupPlanSyncToScheduledJobProcess;
+import com.kingsrook.qbits.backups.schedule.BackupPlanVerifySyncToScheduledJobProcess;
+import com.kingsrook.qqq.backend.core.actions.customizers.MultiCustomizer;
+import com.kingsrook.qqq.backend.core.actions.customizers.TableCustomizers;
+import com.kingsrook.qqq.backend.core.model.metadata.code.QCodeReferenceWithProperties;
+import com.kingsrook.qqq.backend.core.scheduler.processes.BaseSyncToScheduledJobTableCustomizer;
 import com.kingsrook.qqq.backend.core.model.metadata.code.QCodeReference;
 import com.kingsrook.qqq.backend.core.model.metadata.fields.QFieldMetaData;
 import com.kingsrook.qqq.backend.core.model.metadata.fields.QFieldType;
@@ -91,14 +98,14 @@ public final class BackupsTables
       ENUMS.put("lock_mode", List.of("NONE", "GOVERNANCE", "COMPLIANCE"));
       ENUMS.put("sla_status", List.of("OK", "LATE", "FAILING", "MISSING_IN_STORAGE", "UNVERIFIED", "ABANDONED", "OWNER_INVALID", "UNKNOWN"));
       ENUMS.put("run_trigger", List.of("SCHEDULED", "MANUAL", "PRE_RESTORE", "RESUME", "IMPORTED"));
-      ENUMS.put("run_status", List.of("QUEUED", "RUNNING", "SUCCEEDED", "SUCCEEDED_WITH_WARNINGS", "FAILED", "TIMED_OUT", "CANCELLED", "ABANDONED"));
+      ENUMS.put("run_status", List.of("QUEUED", "RUNNING", "SUCCEEDED", "SUCCEEDED_WITH_WARNINGS", "FAILED", "TIMED_OUT", "CANCELLING", "CANCELLED", "ABANDONED"));
       ENUMS.put("retention_class", List.of("DAILY", "WEEKLY", "MONTHLY", "YEARLY", "NONE"));
       ENUMS.put("verification_status", List.of("UNVERIFIED", "STORAGE_OK", "CONTENT_OK", "TEST_RESTORE_OK", "FAILED"));
       ENUMS.put("artifact_type", List.of("TABLE_DATA", "TABLE_BLOBS", "FILE_OBJECTS_INDEX", "NATIVE_DUMP", "MANIFEST", "CHECKSUMS"));
       ENUMS.put("artifact_status", List.of("WRITING", "COMPLETE", "FAILED"));
       ENUMS.put("verify_level", List.of("STORAGE", "CONTENT", "TEST_RESTORE"));
       ENUMS.put("verify_result", List.of("PASSED", "PASSED_WITH_WARNINGS", "FAILED", "RUNNING", "ERROR"));
-      ENUMS.put("restore_status", List.of("PREVIEWED", "QUEUED", "RUNNING", "SUCCEEDED", "SUCCEEDED_WITH_WARNINGS", "FAILED", "CANCELLED"));
+      ENUMS.put("restore_status", List.of("PREVIEWED", "QUEUED", "RUNNING", "SUCCEEDED", "SUCCEEDED_WITH_WARNINGS", "FAILED", "CANCELLING", "CANCELLED"));
       ENUMS.put("restore_mode", List.of("INSERT_NEW", "UPSERT", "REPLACE"));
       ENUMS.put("id_strategy", List.of("PRESERVE", "REMAP_NEW_IDS"));
       ENUMS.put("schema_status", List.of("MATCH", "COMPATIBLE", "MISMATCH"));
@@ -286,6 +293,34 @@ public final class BackupsTables
     ** backups_plan: what, how, where, when and how long (spec 4.1).
     *******************************************************************************/
    static QTableMetaData plan(BackupsQBitConfig config)
+   {
+      QTableMetaData table = planBase(config);
+
+      ////////////////////////////////////////////////////////////////////////////////////////
+      // save validation (spec 4.1, 11.1), and the plan -> scheduled job sync when the qbit  //
+      // has a scheduler (spec 9.1): one job per active plan, and one for the verify cron    //
+      ////////////////////////////////////////////////////////////////////////////////////////
+      QCodeReference validation = new QCodeReference(BackupPlanTableCustomizer.class);
+      table.withCustomizer(TableCustomizers.PRE_INSERT_RECORD, validation);
+      table.withCustomizer(TableCustomizers.PRE_UPDATE_RECORD, validation);
+      if(StringUtils.hasContent(config.getSchedulerName()))
+      {
+         QCodeReferenceWithProperties sync = MultiCustomizer.of(
+            BaseSyncToScheduledJobTableCustomizer.makeCodeReference(table, new BackupPlanSyncToScheduledJobProcess()),
+            BaseSyncToScheduledJobTableCustomizer.makeCodeReference(table, new BackupPlanVerifySyncToScheduledJobProcess()));
+         table.withCustomizer(TableCustomizers.POST_INSERT_RECORD, sync);
+         table.withCustomizer(TableCustomizers.POST_UPDATE_RECORD, sync);
+         table.withCustomizer(TableCustomizers.POST_DELETE_RECORD, sync);
+      }
+      return (table);
+   }
+
+
+
+   /*******************************************************************************
+    ** The plan table before the customizers.
+    *******************************************************************************/
+   private static QTableMetaData planBase(BackupsQBitConfig config)
    {
       return (base(config, PLAN, "Backup Plan", "backup")
          .withRecordLabelFormatAndFields("%s", "name")

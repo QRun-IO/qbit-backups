@@ -26,10 +26,12 @@ import java.util.Map;
 import java.util.Optional;
 import com.kingsrook.qbits.backups.files.FileCopier;
 import com.kingsrook.qbits.backups.model.BackupsTables;
+import com.kingsrook.qqq.backend.core.actions.tables.DeleteAction;
 import com.kingsrook.qqq.backend.core.actions.tables.InsertAction;
 import com.kingsrook.qqq.backend.core.actions.tables.QueryAction;
 import com.kingsrook.qqq.backend.core.actions.tables.UpdateAction;
 import com.kingsrook.qqq.backend.core.exceptions.QException;
+import com.kingsrook.qqq.backend.core.model.actions.tables.delete.DeleteInput;
 import com.kingsrook.qqq.backend.core.model.actions.tables.insert.InsertInput;
 import com.kingsrook.qqq.backend.core.model.actions.tables.query.QCriteriaOperator;
 import com.kingsrook.qqq.backend.core.model.actions.tables.query.QFilterCriteria;
@@ -231,6 +233,72 @@ public class BackupCatalog
             return (where(BackupsTables.FILE_OBJECT, "sha256", sha256).stream().filter(r -> r.getValue("deletedDate") == null).findFirst());
          }
       });
+   }
+
+
+
+   /*******************************************************************************
+    ** Every run (any plan, or an ad-hoc export) that is RUNNING with a heartbeat
+    ** newer than the cutoff: the live leases.
+    *******************************************************************************/
+   public List<QRecord> liveRuns(Instant heartbeatCutoff) throws QException
+   {
+      List<QRecord> live = new ArrayList<>();
+      for(QRecord run : query(BackupsTables.RUN, new QQueryFilter(new QFilterCriteria("status", QCriteriaOperator.IN, List.of("RUNNING", "CANCELLING")))))
+      {
+         Instant heartbeat = run.getValueInstant("heartbeatDate");
+         if(heartbeat != null && heartbeat.isAfter(heartbeatCutoff))
+         {
+            live.add(run);
+         }
+      }
+      return (live);
+   }
+
+
+
+   /*******************************************************************************
+    ** The QUEUED runs, oldest first.
+    *******************************************************************************/
+   public List<QRecord> queuedRuns() throws QException
+   {
+      return (query(BackupsTables.RUN, new QQueryFilter(new QFilterCriteria("status", QCriteriaOperator.EQUALS, "QUEUED")).withOrderBy(new QFilterOrderBy("id", true))));
+   }
+
+
+
+   /*******************************************************************************
+    ** Whether somebody asked for a run to be cancelled (its row says CANCELLING).
+    ** The engine checks this every page.
+    *******************************************************************************/
+   public boolean isCancelRequested(Integer runId)
+   {
+      try
+      {
+         return (get(BackupsTables.RUN, runId).map(r -> "CANCELLING".equals(r.getValueString("status"))).orElse(false));
+      }
+      catch(QException e)
+      {
+         return (false);
+      }
+   }
+
+
+
+   /*******************************************************************************
+    ** Delete catalog rows by id (used only for artifact rows of a part that is
+    ** being rewritten).
+    *******************************************************************************/
+   public void deleteByIds(String table, List<Integer> ids) throws QException
+   {
+      if(ids.isEmpty())
+      {
+         return;
+      }
+      DeleteInput input = new DeleteInput(table);
+      input.setPrimaryKeys(new ArrayList<>(ids));
+      input.withPermissionBypass("backups catalog");
+      new DeleteAction().execute(input);
    }
 
 

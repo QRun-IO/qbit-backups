@@ -365,7 +365,11 @@ class SlaCheckerTest
    {
       plan(Map.of());
       plan(Map.of("name", "Off", "planKey", "off", "isActive", false));
+      // the bucket existed when the plan was saved (plan save validates it), and was removed from the config later
+      var originalResolver = com.kingsrook.qbits.backups.BackupsRuntime.getConfig().getStorageResolver();
+      com.kingsrook.qbits.backups.BackupsRuntime.getConfig().withStorageResolver(alias -> "no-such-bucket".equals(alias) ? com.kingsrook.qbits.backups.BackupsTestUtils.BACKUPS : originalResolver.apply(alias));
       plan(Map.of("name", "Bad", "planKey", "bad", "storageBucketAlias", "no-such-bucket"));
+      com.kingsrook.qbits.backups.BackupsRuntime.getConfig().withStorageResolver(originalResolver);
       clock.advance(Duration.ofHours(30));
 
       List<SlaChecker.PlanResult> results = new SlaChecker().checkAll();
