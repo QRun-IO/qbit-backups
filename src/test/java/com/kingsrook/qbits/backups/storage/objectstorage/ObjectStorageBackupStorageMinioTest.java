@@ -78,7 +78,16 @@ class ObjectStorageBackupStorageMinioTest
       minio = new GenericContainer<>("minio/minio:latest").withCommand("server", "/data").withExposedPorts(9000)
          .withEnv("MINIO_ROOT_USER", "minioadmin").withEnv("MINIO_ROOT_PASSWORD", "minioadmin")
          .waitingFor(Wait.forHttp("/minio/health/live").forPort(9000));
-      minio.start();
+      try
+      {
+         minio.start();
+      }
+      catch(RuntimeException e)
+      {
+         // for example CI with a remote Docker that cannot pull the image: skip, never fail the build
+         minio = null;
+         org.junit.jupiter.api.Assumptions.assumeTrue(false, "MinIO could not be started: " + e.getMessage());
+      }
       String endpoint = "http://" + minio.getHost() + ":" + minio.getMappedPort(9000);
 
       try(S3Client s3 = S3Client.builder().endpointOverride(URI.create(endpoint)).region(Region.US_EAST_1)
