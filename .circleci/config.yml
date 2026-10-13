@@ -22,7 +22,7 @@ workflows:
               context: [qqq-maven-registry-credentials]
               filters:
                  branches:
-                    ignore: /(develop|release\/.*|hotfix\/.*)/
+                    ignore: /(develop|release\/.*)/
 
    publish_snapshot:
       jobs:
@@ -58,14 +58,3 @@ workflows:
                     ignore: /.*/
                  tags:
                     only: [/^v\d+\.\d+\.\d+$/]
-
-   publish_hotfix_release:
-      jobs:
-         - qqq-orb/mvn_publish:
-              pre-steps:
-                 - configure-package-install
-              context: [qqq-maven-registry-credentials]
-              branch_type: hotfix
-              filters:
-                 branches:
-                    only: [/hotfix\/.*/]

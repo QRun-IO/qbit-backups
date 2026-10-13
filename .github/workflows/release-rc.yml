@@ -1,0 +1,25 @@
+# Cut the next release candidate (QRun-IO/qqq docs/QRUN-QBIT-REPO-STANDARD.md, C6):
+# run this workflow by hand, or merge a develop PR labelled `release:rc`. It merges develop into
+# the release line and the release/* push runs CircleCI publish_release_candidate.
+name: Release candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Print the plan without merging or creating branches
+        type: boolean
+        default: false
+  pull_request:
+    types: [closed]
+    branches: [develop]
+
+permissions:
+  contents: write
+
+jobs:
+  release-rc:
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.merged == true && contains(github.event.pull_request.labels.*.name, 'release:rc'))
+    uses: QRun-IO/.github/.github/workflows/qbit-release-rc.yml@main
+    with:
+      dry_run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
