@@ -160,11 +160,52 @@ public class BackupsHomeData
 
 
    /*******************************************************************************
+    ** The status to show for a plan: the stored slaStatus when it is a problem state,
+    ** otherwise LATE when the age of the last success is past the SLA (the SLA
+    ** checker may not have run yet), otherwise the stored status (UNKNOWN when none).
+    *******************************************************************************/
+   public String effectiveStatus(QRecord plan)
+   {
+      String stored = plan.getValueString("slaStatus");
+      if(stored != null && ATTENTION.contains(stored))
+      {
+         return (stored);
+      }
+      Long    age = ageHours(plan);
+      Integer sla = plan.getValueInteger("slaHours");
+      if(age != null && sla != null && age > sla)
+      {
+         return ("LATE");
+      }
+      return (stored == null ? "UNKNOWN" : stored);
+   }
+
+
+
+   /*******************************************************************************
     ** Plans that need attention.
     *******************************************************************************/
    public List<QRecord> plansNeedingAttention()
    {
-      return (plans.stream().filter(p -> Boolean.TRUE.equals(p.getValueBoolean("isActive")) && ATTENTION.contains(p.getValueString("slaStatus"))).toList());
+      return (plans.stream().filter(p -> Boolean.TRUE.equals(p.getValueBoolean("isActive")) && ATTENTION.contains(effectiveStatus(p))).toList());
+   }
+
+
+
+   /*******************************************************************************
+    ** The last run of a plan (from the recent runs), or null.
+    *******************************************************************************/
+   public QRecord lastRun(QRecord plan)
+   {
+      Integer lastRunId = plan.getValueInteger("lastRunId");
+      for(QRecord run : recentRuns)
+      {
+         if(lastRunId != null && lastRunId.equals(run.getValueInteger("id")))
+         {
+            return (run);
+         }
+      }
+      return (null);
    }
 
 
@@ -206,7 +247,7 @@ public class BackupsHomeData
             Integer runId = verification.getValueInteger("backupRunId");
             for(QRecord run : recentRuns)
             {
-               if(runId != null && runId.equals(run.getValueInteger("id")) && planId.equals(run.getValueInteger("backupPlanId")))
+               if(runId != null && planId != null && runId.equals(run.getValueInteger("id")) && planId.equals(run.getValueInteger("backupPlanId")))
                {
                   return (verification);
                }
@@ -224,6 +265,10 @@ public class BackupsHomeData
    public List<QRecord> successfulRuns(Integer planId)
    {
       List<QRecord> rs = new ArrayList<>();
+      if(planId == null)
+      {
+         return (rs);
+      }
       for(QRecord run : recentRuns)
       {
          if(planId.equals(run.getValueInteger("backupPlanId")) && run.getValueString("status") != null && run.getValueString("status").startsWith("SUCCEEDED"))
@@ -242,6 +287,10 @@ public class BackupsHomeData
    public Map<String, Integer> retentionCounts(Integer planId)
    {
       Map<String, Integer> counts = new LinkedHashMap<>();
+      if(planId == null)
+      {
+         return (counts);
+      }
       for(QRecord run : recentRuns)
       {
          if(planId.equals(run.getValueInteger("backupPlanId")) && run.getValueString("status") != null && run.getValueString("status").startsWith("SUCCEEDED")

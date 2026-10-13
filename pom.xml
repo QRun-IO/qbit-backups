@@ -102,6 +102,19 @@
          <scope>test</scope>
       </dependency>
 
+      <!-- Demo server only (src/test/.../demo): never shipped. -->
+      <dependency>
+         <groupId>com.kingsrook.qqq</groupId>
+         <artifactId>qqq-middleware-javalin</artifactId>
+         <scope>test</scope>
+      </dependency>
+      <dependency>
+         <groupId>com.kingsrook.qqq</groupId>
+         <artifactId>qqq-frontend-next</artifactId>
+         <version>1.0.0-RC.14</version>
+         <scope>test</scope>
+      </dependency>
+
       <dependency>
          <groupId>org.junit.jupiter</groupId>
          <artifactId>junit-jupiter</artifactId>
