@@ -70,6 +70,7 @@ public final class BackupsHomeView
    {
       StringBuilder html = new StringBuilder("<div class=\"backups-home\" style=\"" + ROOT + "\">");
       planStatus(html, data, pathPrefix);
+      setup(html, data, pathPrefix);
       html.append("<div style=\"").append(GRID).append("\">");
       needsAttention(html, data, pathPrefix);
       latestTestRestore(html, data, pathPrefix);
@@ -134,6 +135,50 @@ public final class BackupsHomeView
          html.append("</div></div>");
       }
       link(html, prefix, BackupsTables.PLAN, "Backup plans");
+      close(html);
+   }
+
+
+
+   /*******************************************************************************
+    ** The Setup card: what a working backup needs, whether each part is in place,
+    ** and the next step, linked to its table.
+    *******************************************************************************/
+   private static void setup(StringBuilder html, BackupsHomeData data, String prefix)
+   {
+      List<BackupsSetupStatus.Item> items = BackupsSetupStatus.load(data.plans());
+      open(html, "Setup");
+      long todo = items.stream().filter(i -> i.state() == BackupsSetupStatus.State.TODO).count();
+      html.append("<p style=\"margin:0 0 .6rem;font-size:.9rem;\">")
+         .append(todo == 0 ? "Everything backups need is set up." : esc(todo + (todo == 1 ? " item needs" : " items need") + " attention."))
+         .append("</p><ul style=\"list-style:none;margin:0;padding:0;\">");
+      for(BackupsSetupStatus.Item item : items)
+      {
+         String color = switch(item.state())
+         {
+            case OK -> "#16a34a";
+            case TODO -> "#dc2626";
+            case DEFAULT -> "#d97706";
+            case OPTIONAL -> "#9ca3af";
+         };
+         String label = switch(item.state())
+         {
+            case OK -> "Set up";
+            case TODO -> "Needs setup";
+            case DEFAULT -> "Using defaults";
+            case OPTIONAL -> "Optional";
+         };
+         html.append("<li style=\"").append(ROW).append("\"><div style=\"display:flex;flex-wrap:wrap;align-items:center;gap:.5rem .75rem;\">")
+            .append("<strong>").append("<a style=\"").append(LINK).append("\" href=\"").append(esc(prefix + "/" + item.tableName())).append("\">").append(esc(item.label())).append("</a></strong>")
+            .append("<span style=\"").append(CHIP).append("\"><span aria-hidden=\"true\" style=\"width:.55rem;height:.55rem;border-radius:50%;background:").append(color).append(";display:inline-block;\"></span>").append(esc(label)).append("</span>")
+            .append("</div><div style=\"font-size:.9rem;margin-top:.35rem;\">").append(esc(item.detail())).append("</div>");
+         if(item.nextStep() != null)
+         {
+            html.append("<div style=\"").append(MUTED).append("font-size:.9rem;margin-top:.2rem;\">Next: ").append(esc(item.nextStep())).append("</div>");
+         }
+         html.append("</li>");
+      }
+      html.append("</ul>");
       close(html);
    }
 
