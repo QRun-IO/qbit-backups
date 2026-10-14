@@ -36,11 +36,11 @@ public final class BackupAlerts
 {
    public static final String PLAN_MISSED          = "backups.plan.missed";
    public static final String RUN_FAILED           = "backups.run.failed";
-   public static final String RUN_MISSING          = "backups.run.missing_in_storage";
+   public static final String RUN_MISSING          = "backups.run.missing-in-storage";
    public static final String FILES_MISSING        = "backups.files.missing";
    public static final String VERIFY_FAILED        = "backups.verify.failed";
    public static final String VERIFY_OVERDUE       = "backups.verify.overdue";
-   public static final String PLAN_OWNER_INVALID   = "backups.plan.owner_invalid";
+   public static final String PLAN_OWNER_INVALID   = "backups.plan.owner-invalid";
    public static final String STORAGE_DEBRIS       = "backups.storage.debris";
    public static final String RESTORE_COMPLETED    = "backups.restore.completed";
 

@@ -34,6 +34,7 @@ import com.kingsrook.qqq.backend.core.utils.JsonUtils;
 
 
 /*******************************************************************************
+ ** STAND-IN(core=QRun-IO/qqq#1114, removeBy=4.1.0-RC.6)
  ** Reads the rows of one table in primary key order, in keyset pages (WHERE pk >
  ** lastKey ORDER BY pk LIMIT n), so the cost stays flat with depth and a read can
  ** resume from a key.  A read raw: hidden fields, passwords and heavy fields are

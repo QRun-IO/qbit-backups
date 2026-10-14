@@ -10,7 +10,7 @@
 ## Requirements
 
 - Java 21.
-- QQQ 4.1 (built against `4.1.0-RC.4`).
+- QQQ 4.1 (built against `4.1.0-RC.5`).
 
 ## Install
 
@@ -41,3 +41,18 @@ Always use the Maven wrapper (Maven 3.9.11); Maven 3.10 cannot read the parent P
 ## License
 
 Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+### Alerts integration
+
+Backups binds directly to core QAlerts in QQQ 4.1.0-RC.5 and declares its nine
+alert types on each instance. Hosts install an `AlertSinkInterface` through
+`AlertsInstanceMetaData.withSink(QCodeReference)`. Without a configured sink,
+backup alert calls remain no-ops (they do not use core's logging fallback).
+Custom `BackupAlertSink` bindings are preserved. Core handles dispatch failures;
+adapter failures are caught and logged once, so alerting cannot fail a backup.
+Raise and resolve follow core's transaction-aware dispatch; heartbeats run immediately.
+The backup SLA checker still owns expected intervals and grace periods.
+
+RC.5 requires hyphenated alert names: `backups.run.missing-in-storage` and
+`backups.plan.owner-invalid` replace the former underscore spellings, including
+their deduplication keys. Update host routing rules that used those spellings.

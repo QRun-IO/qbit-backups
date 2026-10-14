@@ -31,6 +31,7 @@ import com.kingsrook.qqq.backend.core.model.metadata.tables.UniqueKey;
 
 
 /*******************************************************************************
+ ** STAND-IN(core=QRun-IO/qqq#1113, removeBy=4.1.0-RC.6)
  ** A stable schema descriptor and SHA-256 fingerprint of a table (spec 5.5).
  **
  ** This is an internal stand-in for the QQQ core TableSchemaFingerprint (core PR

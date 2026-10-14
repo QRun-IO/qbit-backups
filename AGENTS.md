@@ -35,7 +35,7 @@ This file provides guidance to Codex when working with code in this repository.
 ## Dependencies
 
 - Java 21.
-- Parent `com.kingsrook:qbit-build-parent:2.0.0` (qqq 4.0.0). The default-active `qqq-snapshot` profile imports `qqq-bom-pom:4.1.0-RC.4` ahead of it, as in qbit-quick-search (ADR-0007). Remove that activation when the parent moves to 4.1.
+- Parent `com.kingsrook:qbit-build-parent:2.0.0` (qqq 4.0.0). The default-active `qqq-snapshot` profile imports `qqq-bom-pom:4.1.0-RC.5` ahead of it, as in qbit-quick-search (ADR-0007). Remove that activation when the parent moves to 4.1.
 - Tests: JUnit 5, AssertJ.
 
 ## Release

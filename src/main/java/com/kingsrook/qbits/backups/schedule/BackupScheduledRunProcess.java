@@ -50,7 +50,7 @@ import static com.kingsrook.qqq.backend.core.logging.LogUtils.logPair;
  ** run is a full-instance, system-session backup (securityScope FULL, requested by
  ** system:scheduler), which is why the plan owner is validated first: a plan whose
  ** owner has gone, or lost backups.admin, is not run silently.  It raises
- ** backups.plan.owner_invalid, marks the plan OWNER_INVALID, and stops.
+ ** backups.plan.owner-invalid, marks the plan OWNER_INVALID, and stops.
  **
  ** Everything goes through the run coordinator, so a trigger that finds the plan
  ** already running is skipped visibly, and a full instance queues the run.
@@ -141,11 +141,11 @@ public class BackupScheduledRunProcess implements BackendStep
       if(problem != null)
       {
          catalog.update(BackupsTables.PLAN, plan.getValueInteger("id"), Map.of("slaStatus", "OWNER_INVALID"));
-         BackupsRuntime.getAlertSink().raise("backups.plan.owner_invalid", "backups.plan.owner_invalid:" + plan.getValueString("planKey"), BackupAlertSink.Severity.WARNING,
+         BackupsRuntime.getAlertSink().raise("backups.plan.owner-invalid", "backups.plan.owner-invalid:" + plan.getValueString("planKey"), BackupAlertSink.Severity.WARNING,
             "A scheduled backup did not run: " + problem, Map.of("plan", plan.getValueString("planKey")));
          throw (new QUserFacingException("The scheduled backup did not run: " + problem + "."));
       }
-      BackupsRuntime.getAlertSink().resolve("backups.plan.owner_invalid", "backups.plan.owner_invalid:" + plan.getValueString("planKey"));
+      BackupsRuntime.getAlertSink().resolve("backups.plan.owner-invalid", "backups.plan.owner-invalid:" + plan.getValueString("planKey"));
 
       BackupRunResult result = new BackupRunCoordinator().runPlan(plan, "SCHEDULED");
       output.addValue("status", result.getStatus());
