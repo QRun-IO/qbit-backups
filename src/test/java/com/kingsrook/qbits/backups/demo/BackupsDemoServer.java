@@ -318,8 +318,30 @@ public class BackupsDemoServer extends AbstractQQQApplication
       run(archive.getValueInteger("id"), "MANUAL");
       STORAGE_DOWN.set(false);
 
-      // An edit after the last run, so a restore would have something to do.
+      // Verification, restore and prune (the scratch merge of PRs 5, 6 and 7): all real engine runs.
+      Integer nightlyRun = new BackupCatalog().get(BackupsTables.PLAN, nightly.getValueInteger("id")).orElseThrow().getValueInteger("lastSuccessRunId");
+      Integer weeklyRun  = new BackupCatalog().get(BackupsTables.PLAN, content.getValueInteger("id")).orElseThrow().getValueInteger("lastSuccessRunId");
+      CLOCK.set(today.minus(Duration.ofHours(2)));
+      new com.kingsrook.qbits.backups.verify.BackupVerifier().verifyThrough(nightlyRun, "TEST_RESTORE", "MANUAL", "james");
+      new com.kingsrook.qbits.backups.verify.BackupVerifier().verifyThrough(weeklyRun, "CONTENT", "MANUAL", "james");
+      new com.kingsrook.qbits.backups.verify.BackupVerifier().verify(nightlyRun - 1, "STORAGE", "SCHEDULED", "system:scheduler");
+
+      CLOCK.set(today.minus(Duration.ofHours(1)));
+      new com.kingsrook.qbits.backups.restore.RestoreEngine().review(new com.kingsrook.qbits.backups.restore.RestoreRequest().withSourceRunId(nightlyRun).withMode("UPSERT")
+         .withTables(List.of("blogPost")).withRequestedBy("james"));
       new UpdateAction().execute(new UpdateInput("blogPost").withRecord(new QRecord().withValue("id", 1).withValue("title", "Post 1: edited after the last backup")));
+      new com.kingsrook.qbits.backups.restore.RestoreEngine().execute(new com.kingsrook.qbits.backups.restore.RestoreRequest().withSourceRunId(nightlyRun).withMode("UPSERT")
+         .withTables(List.of("blogPost")).withRequestedBy("james"));
+      try
+      {
+         new com.kingsrook.qbits.backups.prune.BackupPruner().prune(new BackupCatalog().get(BackupsTables.PLAN, nightly.getValueInteger("id")).orElseThrow(), "james");
+      }
+      catch(Exception e)
+      {
+         System.out.println("prune skipped: " + e);
+      }
+      new com.kingsrook.qbits.backups.sla.SlaChecker().checkAll();
+      new UpdateAction().execute(new UpdateInput("blogPost").withRecord(new QRecord().withValue("id", 2).withValue("title", "Post 2: edited after the restore")));
       CLOCK.set(Instant.now());
       BackupsRuntime.setClock(Clock.systemUTC());
       QContext.clear();

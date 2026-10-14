@@ -261,7 +261,7 @@ public final class BackupsHomeView
          long   value = run.getValueLong("bytesStored") == null ? 0 : run.getValueLong("bytesStored");
          long   pct   = Math.max(4, Math.round(100.0 * value / max));
          String title = (run.getValueInstant("startDate") == null ? "" : WHEN.format(run.getValueInstant("startDate")) + ": ") + bytes(run.getValueLong("bytesStored"));
-         html.append("<span title=\"").append(esc(title)).append("\" style=\"flex:1 1 0;min-width:2px;height:").append(pct).append("%;background:currentColor;opacity:.55;border-radius:2px 2px 0 0;\"></span>");
+         html.append("<span title=\"").append(esc(title)).append("\" style=\"flex:1 1 0;min-width:2px;max-width:1.5rem;height:").append(pct).append("%;background:currentColor;opacity:.55;border-radius:2px 2px 0 0;\"></span>");
       }
       html.append("</div>");
    }
