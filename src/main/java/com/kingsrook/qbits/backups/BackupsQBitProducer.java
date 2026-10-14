@@ -119,13 +119,8 @@ public class BackupsQBitProducer implements QBitMetaDataProducer<BackupsQBitConf
       qInstance.addQBit(qBit);
       BackupsRuntime.install(qBitConfig);
 
-      ///////////////////////////////////////////////////////////////////////////////
-      // bind the Alerts qbit producer SPI when it is on the class path (optional) //
-      ///////////////////////////////////////////////////////////////////////////////
-      if(com.kingsrook.qbits.backups.alerts.AlertsQBitAlertSink.bindIfPresent())
-      {
-         new com.kingsrook.qbits.backups.alerts.AlertsQBitAlertSink().registerAlertTypes(qInstance);
-      }
+      com.kingsrook.qbits.backups.alerts.AlertsQBitAlertSink.bindIfAbsent();
+      new com.kingsrook.qbits.backups.alerts.AlertsQBitAlertSink().registerAlertTypes(qInstance);
 
       com.kingsrook.qqq.backend.core.model.metadata.MetaDataProducerMultiOutput output = new com.kingsrook.qqq.backend.core.model.metadata.MetaDataProducerMultiOutput();
       for(var possibleValueSource : com.kingsrook.qbits.backups.model.BackupsTables.possibleValueSources())

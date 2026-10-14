@@ -180,12 +180,12 @@ class SlaCheckerTest
 
       clock.advance(Duration.ofMinutes(55));
       assertThat(check(plan).status()).isEqualTo(SlaChecker.MISSING_IN_STORAGE);
-      BackupAlertsAssert.assertOpen("backups.run.missing_in_storage:nightly", BackupAlertSink.Severity.CRITICAL);
+      BackupAlertsAssert.assertOpen("backups.run.missing-in-storage:nightly", BackupAlertSink.Severity.CRITICAL);
       assertThat(check(plan).status()).as("a negative answer is never cached").isEqualTo(SlaChecker.MISSING_IN_STORAGE);
 
       BackupsTestUtils.BACKUPS.putBytes(result.getManifestKey(), bytes);
       assertThat(check(plan).status()).isEqualTo(SlaChecker.OK);
-      assertThat(sink.isOpen("backups.run.missing_in_storage:nightly")).isFalse();
+      assertThat(sink.isOpen("backups.run.missing-in-storage:nightly")).isFalse();
    }
 
 
@@ -260,11 +260,11 @@ class SlaCheckerTest
 
       BackupsRuntime.getConfig().withPlanOwnerValidator(owner -> false);
       assertThat(check(plan).status()).isEqualTo(SlaChecker.OWNER_INVALID);
-      BackupAlertsAssert.assertOpen("backups.plan.owner_invalid:nightly", BackupAlertSink.Severity.WARNING);
+      BackupAlertsAssert.assertOpen("backups.plan.owner-invalid:nightly", BackupAlertSink.Severity.WARNING);
 
       BackupsRuntime.getConfig().withPlanOwnerValidator(owner -> "bob".equals(owner));
       assertThat(check(plan).status()).isEqualTo(SlaChecker.OK);
-      assertThat(sink.isOpen("backups.plan.owner_invalid:nightly")).isFalse();
+      assertThat(sink.isOpen("backups.plan.owner-invalid:nightly")).isFalse();
 
       BackupsRuntime.getConfig().withPlanOwnerValidator(owner ->
       {
@@ -287,7 +287,7 @@ class SlaCheckerTest
       clock.advance(Duration.ofDays(2));
       assertThat(check(plan).status()).isEqualTo(SlaChecker.MISSING_IN_STORAGE);
       assertThat(sink.isOpen("backups.plan.missed:nightly")).as("the alerts are independent of the status shown").isTrue();
-      assertThat(sink.isOpen("backups.run.missing_in_storage:nightly")).isTrue();
+      assertThat(sink.isOpen("backups.run.missing-in-storage:nightly")).isTrue();
    }
 
 

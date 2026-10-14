@@ -70,8 +70,8 @@ class BackupAlertsTest
    void testTheSpecTable()
    {
       Set<String> names = BackupAlerts.alertTypes().stream().map(BackupAlerts.AlertType::name).collect(Collectors.toSet());
-      assertThat(names).containsExactlyInAnyOrder("backups.plan.missed", "backups.run.failed", "backups.run.missing_in_storage", "backups.files.missing",
-         "backups.verify.failed", "backups.verify.overdue", "backups.plan.owner_invalid", "backups.storage.debris", "backups.restore.completed");
+      assertThat(names).containsExactlyInAnyOrder("backups.plan.missed", "backups.run.failed", "backups.run.missing-in-storage", "backups.files.missing",
+         "backups.verify.failed", "backups.verify.overdue", "backups.plan.owner-invalid", "backups.storage.debris", "backups.restore.completed");
       assertThat(BackupAlerts.alertTypes()).allSatisfy(t -> assertThat(t.howToFix()).isNotBlank());
       assertThat(BackupAlerts.alertTypes().stream().filter(t -> t.name().equals(BackupAlerts.RUN_MISSING)).findFirst().orElseThrow().defaultSeverity())
          .isEqualTo(BackupAlertSink.Severity.CRITICAL);
