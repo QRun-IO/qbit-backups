@@ -53,6 +53,7 @@ public final class LifecycleProcesses
    {
       List<QProcessMetaData> processes = new ArrayList<>();
       processes.add(BackupScheduledRunProcess.processMetaData());
+      processes.add(com.kingsrook.qbits.backups.schedule.BackupScheduledVerifyProcess.processMetaData());
       processes.addAll(CancelRunProcess.processes());
       processes.add(ResumeRunProcess.process());
       processes.add(TestDestinationProcess.process());

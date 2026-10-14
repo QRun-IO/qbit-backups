@@ -48,7 +48,7 @@ import com.kingsrook.qqq.backend.core.model.statusmessages.QWarningMessage;
 public class BackupPlanTableCustomizer implements TableCustomizerInterface
 {
    private static final List<String> CONFIGURATION_FIELDS = List.of("planKey", "isActive", "scopeType", "includeRoles", "storageBucketAlias", "pruneBucketAlias",
-      "format", "compression", "encryptionMode", "encryptionKeyRef", "sensitiveFieldPolicy", "incrementalMode", "nativeDump", "cronExpression", "cronTimeZoneId",
+      "format", "compression", "encryptionMode", "encryptionKeyRef", "sensitiveFieldPolicy", "incrementalMode", "nativeDump", "useReadReplica", "cronExpression", "cronTimeZoneId",
       "verifyCronExpression", "retainDaily", "retainWeekly", "retainMonthly", "retainYearly", "retainMinimum", "objectLockMode", "objectLockDays",
       "slaHours", "pageSize", "ownerUserId");
 
