@@ -20,6 +20,7 @@ package com.kingsrook.qbits.backups.plan;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -82,6 +83,28 @@ public final class DestinationProbe
     *******************************************************************************/
    public static Report probe(QRecord plan)
    {
+      return (probe(plan, false, null));
+   }
+
+
+
+   /*******************************************************************************
+    ** Health monitoring only lists and heads; it never resolves prune credentials
+    ** or probes capabilities. The runner bounds in-flight storage calls; check the
+    ** deadline between calls because BackupStorage has no per-call timeout API.
+    *******************************************************************************/
+   public static Report probeReadOnly(QRecord plan, Instant deadline)
+   {
+      return (probe(plan, true, deadline));
+   }
+
+
+
+   /*******************************************************************************
+    ** Share storage resolution and the existing locked-bucket read path.
+    *******************************************************************************/
+   private static Report probe(QRecord plan, boolean readOnly, Instant deadline)
+   {
       List<Check>  checks   = new ArrayList<>();
       List<String> warnings = new ArrayList<>();
 
@@ -89,14 +112,22 @@ public final class DestinationProbe
       BackupStorage storage;
       try
       {
+         requireTime(deadline);
          storage = BackupsRuntime.storageFor(alias);
+         requireTime(deadline);
       }
       catch(RuntimeException e)
       {
          checks.add(new Check("Open the backup bucket " + alias, false, e.getMessage()));
-         return (new Report(false, checks, List.of(), warnings));
+         return (new Report(readOnly, checks, List.of(), warnings));
       }
       checks.add(new Check("Open the backup bucket " + alias, true, "found"));
+
+      if(readOnly)
+      {
+         headOnly(plan, storage, BackupPruner.planPrefix(plan), checks, deadline);
+         return (new Report(true, checks, List.of(), warnings));
+      }
 
       BackupStorage deleteSide = storage;
       String        pruneAlias = plan.getValueString("pruneBucketAlias");
@@ -133,7 +164,7 @@ public final class DestinationProbe
       String prefix = BackupPruner.planPrefix(plan);
       if(locked)
       {
-         headOnly(plan, storage, prefix, checks);
+         headOnly(plan, storage, prefix, checks, null);
       }
       else
       {
@@ -147,10 +178,11 @@ public final class DestinationProbe
    /*******************************************************************************
     ** The probe for a locked bucket: list the prefix, and head the newest manifest.
     *******************************************************************************/
-   private static void headOnly(QRecord plan, BackupStorage storage, String prefix, List<Check> checks)
+   private static void headOnly(QRecord plan, BackupStorage storage, String prefix, List<Check> checks, Instant deadline)
    {
-      checks.add(attempt("Write and delete a probe object", () -> "skipped: object lock is on, a probe object could not be deleted again"));
-      checks.add(attempt("List the plan prefix", () ->
+      checks.add(new Check("Write and delete a probe object", true,
+         deadline == null ? "skipped: object lock is on, a probe object could not be deleted again" : "skipped: read-only probe"));
+      checks.add(attempt("List the plan prefix", deadline, () ->
       {
          List<StoredObjectInfo> objects = storage.list(prefix);
          return (objects.size() + " objects under " + prefix);
@@ -162,10 +194,11 @@ public final class DestinationProbe
          checks.add(new Check("Head the newest manifest", true, "there is no successful run yet"));
          return;
       }
-      checks.add(attempt("Head the newest manifest", () ->
+      checks.add(attempt("Head the newest manifest", deadline, () ->
       {
          QRecord run = new com.kingsrook.qbits.backups.run.BackupCatalog().get(com.kingsrook.qbits.backups.model.BackupsTables.RUN, lastSuccess).orElseThrow();
          String  key = run.getValueString("manifestKey");
+         requireTime(deadline);
          if(key == null || storage.head(key).isEmpty())
          {
             throw (new IllegalStateException("the manifest of the newest successful run is not in the bucket"));
@@ -238,6 +271,9 @@ public final class DestinationProbe
    @FunctionalInterface
    private interface Attempt
    {
+      /*******************************************************************************
+       ** Execute one diagnostic operation.
+       *******************************************************************************/
       String run() throws Exception;
    }
 
@@ -248,13 +284,39 @@ public final class DestinationProbe
     *******************************************************************************/
    private static Check attempt(String name, Attempt attempt)
    {
+      return (attempt(name, null, attempt));
+   }
+
+
+
+   /*******************************************************************************
+    ** Never begin another storage operation after the health budget expires.
+    *******************************************************************************/
+   private static Check attempt(String name, Instant deadline, Attempt attempt)
+   {
       try
       {
-         return (new Check(name, true, attempt.run()));
+         requireTime(deadline);
+         String detail = attempt.run();
+         requireTime(deadline);
+         return (new Check(name, true, detail));
       }
       catch(Exception e)
       {
          return (new Check(name, false, e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()));
+      }
+   }
+
+
+
+   /*******************************************************************************
+    ** Existing on-demand diagnostics have no deadline; health probes always do.
+    *******************************************************************************/
+   private static void requireTime(Instant deadline)
+   {
+      if(deadline != null && (Thread.currentThread().isInterrupted() || !Instant.now().isBefore(deadline)))
+      {
+         throw (new IllegalStateException("Destination probe timed out"));
       }
    }
 }
