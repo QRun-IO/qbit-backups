@@ -18,29 +18,23 @@ package com.kingsrook.qbits.backups.manifest;
 
 
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.TreeMap;
 import com.kingsrook.qbits.backups.codec.HashingOutputStream;
-import com.kingsrook.qqq.backend.core.model.metadata.fields.QFieldMetaData;
-import com.kingsrook.qqq.backend.core.model.metadata.tables.Association;
 import com.kingsrook.qqq.backend.core.model.metadata.tables.QTableMetaData;
-import com.kingsrook.qqq.backend.core.model.metadata.tables.UniqueKey;
+import com.kingsrook.qqq.backend.core.model.metadata.tables.TableSchemaFingerprint;
 
 
 /*******************************************************************************
- ** STAND-IN(core=QRun-IO/qqq#1113, removeBy=4.1.0-RC.6)
- ** A stable schema descriptor and SHA-256 fingerprint of a table (spec 5.5).
- **
- ** This is an internal stand-in for the QQQ core TableSchemaFingerprint (core PR
- ** feature/schema-fingerprint).  When that ships in the next 4.1.x RC, this class
- ** delegates to it and the descriptor below is kept only for reading old manifests.
- ** Labels, adornments and help text are excluded, so cosmetic changes do not count.
+ ** Core schema fingerprints with read compatibility for pre-RC.6 manifests.
  *******************************************************************************/
 public final class TableFingerprints
 {
+   public static final String CORE_ALGORITHM = "qqq-table-schema-v1";
+   public static final String LEGACY_ALGORITHM = "qbit-backups-table-v1";
+
+
 
    /*******************************************************************************
     ** Utility class.
@@ -52,134 +46,83 @@ public final class TableFingerprints
 
 
    /*******************************************************************************
-    ** The descriptor of a table (sorted fields; plain maps and lists, so it is also
-    ** what goes in the manifest schema).
+    ** The core descriptor stored in new manifests.
     *******************************************************************************/
    public static Map<String, Object> descriptor(QTableMetaData table, String backendType)
    {
-      Map<String, Object> d = new LinkedHashMap<>();
-      d.put("name", table.getName());
-      d.put("primaryKey", table.getPrimaryKeyField());
-      d.put("backendType", backendType);
-
-      Map<String, Object> fields = new TreeMap<>();
-      for(QFieldMetaData field : new TreeMap<>(table.getFields()).values())
-      {
-         Map<String, Object> f = new LinkedHashMap<>();
-         f.put("type", field.getType().name());
-         f.put("required", field.getIsRequired());
-         f.put("maxLength", field.getMaxLength());
-         f.put("pvs", field.getPossibleValueSourceName());
-         f.put("heavy", field.getIsHeavy());
-         f.put("sensitive", field.getIsSensitive());
-         fields.put(field.getName(), f);
-      }
-      d.put("fields", fields);
-
-      List<String> uniqueKeys = new ArrayList<>();
-      if(table.getUniqueKeys() != null)
-      {
-         for(UniqueKey key : table.getUniqueKeys())
-         {
-            uniqueKeys.add(String.join("+", key.getFieldNames().stream().sorted().toList()));
-         }
-      }
-      uniqueKeys.sort(String::compareTo);
-      d.put("uniqueKeys", uniqueKeys);
-
-      List<String> associations = new ArrayList<>();
-      if(table.getAssociations() != null)
-      {
-         for(Association association : table.getAssociations())
-         {
-            associations.add(association.getName() + "->" + association.getAssociatedTableName());
-         }
-      }
-      associations.sort(String::compareTo);
-      d.put("associations", associations);
-      return (d);
+      return (TableSchemaFingerprint.of(table, backendType).getDescriptor());
    }
 
 
 
    /*******************************************************************************
-    ** The fingerprint of a table: sha256:hex of the canonical descriptor.
+    ** Retain the manifest's sha256 prefix around the core hash.
     *******************************************************************************/
    public static String of(QTableMetaData table, String backendType)
    {
-      return (fingerprintOf(descriptor(table, backendType)));
+      return ("sha256:" + TableSchemaFingerprint.of(table, backendType).getHash());
    }
 
 
 
    /*******************************************************************************
-    ** The fingerprint of a descriptor (maps sorted by key at every level, no whitespace).
+    ** An absent algorithm identifies manifests written before RC.6. Unknown
+    ** algorithms must not silently fall back to a different fingerprint.
     *******************************************************************************/
-   public static String fingerprintOf(Map<String, Object> descriptor)
+   public static boolean matches(BackupManifest.TableEntry entry, QTableMetaData table, String backendType)
    {
-      StringBuilder sb = new StringBuilder();
-      canonical(descriptor, sb);
-      return ("sha256:" + HashingOutputStream.sha256Hex(sb.toString().getBytes(StandardCharsets.UTF_8)));
+      if(entry.fingerprint() == null)
+      {
+         return (false);
+      }
+      String algorithm = entry.fingerprintAlgorithm();
+      if(algorithm == null || LEGACY_ALGORITHM.equals(algorithm))
+      {
+         return (entry.fingerprint().equals(LegacyTableFingerprint.of(table, backendType)));
+      }
+      return (CORE_ALGORITHM.equals(algorithm) && entry.fingerprint().equals(of(table, backendType)));
    }
 
 
 
    /*******************************************************************************
-    ** The fingerprint of a whole instance's tables: a hash of the table fingerprints.
+    ** Normalize both descriptor versions to field-name maps for restore's
+    ** compatibility analysis. Core fields use a list and explicit flag names.
+    *******************************************************************************/
+   @SuppressWarnings("unchecked")
+   public static Map<String, Object> fields(Map<String, Object> descriptor)
+   {
+      Object fields = descriptor == null ? null : descriptor.get("fields");
+      if(fields instanceof Map<?, ?> map)
+      {
+         return ((Map<String, Object>) map);
+      }
+      Map<String, Object> result = new LinkedHashMap<>();
+      if(fields instanceof List<?> list)
+      {
+         for(Object item : list)
+         {
+            Map<String, Object> field = (Map<String, Object>) item;
+            Map<String, Object> normalized = new LinkedHashMap<>();
+            normalized.put("type", field.get("type"));
+            normalized.put("required", field.get("isRequired"));
+            normalized.put("maxLength", field.get("maxLength"));
+            normalized.put("pvs", field.get("possibleValueSource"));
+            normalized.put("heavy", field.get("isHeavy"));
+            normalized.put("sensitive", field.get("isSensitive"));
+            result.put((String) field.get("name"), normalized);
+         }
+      }
+      return (result);
+   }
+
+
+
+   /*******************************************************************************
+    ** The instance fingerprint remains a hash of the ordered table fingerprints.
     *******************************************************************************/
    public static String combine(List<String> tableFingerprints)
    {
       return ("sha256:" + HashingOutputStream.sha256Hex(String.join("\n", tableFingerprints).getBytes(StandardCharsets.UTF_8)));
-   }
-
-
-
-   /*******************************************************************************
-    **
-    *******************************************************************************/
-   @SuppressWarnings("unchecked")
-   private static void canonical(Object o, StringBuilder sb)
-   {
-      if(o == null)
-      {
-         sb.append("null");
-      }
-      else if(o instanceof Map<?, ?> map)
-      {
-         sb.append('{');
-         boolean first = true;
-         for(Map.Entry<String, Object> e : new TreeMap<>((Map<String, Object>) map).entrySet())
-         {
-            if(!first)
-            {
-               sb.append(',');
-            }
-            first = false;
-            sb.append('"').append(e.getKey()).append("\":");
-            canonical(e.getValue(), sb);
-         }
-         sb.append('}');
-      }
-      else if(o instanceof List<?> list)
-      {
-         sb.append('[');
-         for(int i = 0; i < list.size(); i++)
-         {
-            if(i > 0)
-            {
-               sb.append(',');
-            }
-            canonical(list.get(i), sb);
-         }
-         sb.append(']');
-      }
-      else if(o instanceof Number || o instanceof Boolean)
-      {
-         sb.append(o);
-      }
-      else
-      {
-         sb.append('"').append(String.valueOf(o).replace("\\", "\\\\").replace("\"", "\\\"")).append('"');
-      }
    }
 }

@@ -105,7 +105,8 @@ public class RestoreEngine
       Map<String, String> targets  = new LinkedHashMap<>();
       QInstance           instance = QContext.getQInstance();
 
-      if(!BackupsPermissionChecker.has(BackupsPermissions.RESTORE))
+      if(!BackupsPermissionChecker.has(BackupsPermissions.RESTORE)
+         || (request.getWriter().usesCoreRestoreFlag() && (QContext.getQSession() == null || !QContext.getQSession().hasPermission(BackupsPermissions.RESTORE))))
       {
          errors.add("Restoring needs the " + BackupsPermissions.RESTORE + " permission.");
       }

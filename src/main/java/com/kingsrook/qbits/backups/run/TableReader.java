@@ -18,31 +18,20 @@ package com.kingsrook.qbits.backups.run;
 
 
 import java.io.Serializable;
-import java.util.List;
 import java.util.function.Consumer;
 import com.kingsrook.qqq.backend.core.actions.QBackendTransaction;
-import com.kingsrook.qqq.backend.core.actions.tables.QueryAction;
+import com.kingsrook.qqq.backend.core.actions.tables.KeysetPager;
 import com.kingsrook.qqq.backend.core.exceptions.QException;
-import com.kingsrook.qqq.backend.core.model.actions.tables.query.QCriteriaOperator;
-import com.kingsrook.qqq.backend.core.model.actions.tables.query.QFilterCriteria;
-import com.kingsrook.qqq.backend.core.model.actions.tables.query.QFilterOrderBy;
 import com.kingsrook.qqq.backend.core.model.actions.tables.query.QQueryFilter;
-import com.kingsrook.qqq.backend.core.model.actions.tables.query.QueryInput;
 import com.kingsrook.qqq.backend.core.model.data.QRecord;
 import com.kingsrook.qqq.backend.core.model.metadata.tables.QTableMetaData;
 import com.kingsrook.qqq.backend.core.utils.JsonUtils;
 
 
 /*******************************************************************************
- ** STAND-IN(core=QRun-IO/qqq#1114, removeBy=4.1.0-RC.6)
- ** Reads the rows of one table in primary key order, in keyset pages (WHERE pk >
- ** lastKey ORDER BY pk LIMIT n), so the cost stays flat with depth and a read can
- ** resume from a key.  A read raw: hidden fields, passwords and heavy fields are
- ** returned as stored, and possible values are not translated.
- **
- ** This is an internal stand-in for the QQQ core KeysetPager and QueryInput
- ** withRawRead (core PR feature/keyset-pager-raw-read); the run engine only
- ** depends on this interface, so it is swapped when that ships in the next RC.
+ ** Reads rows in primary key order through core KeysetPager. Each bounded page
+ ** uses the supplied transaction and returns hidden, password and heavy fields
+ ** as stored, without possible-value translation or display generation.
  *******************************************************************************/
 public interface TableReader
 {
@@ -82,48 +71,25 @@ public interface TableReader
       @Override
       public void read(QTableMetaData table, String filterJson, Serializable startAfterKey, int pageSize, QBackendTransaction transaction, Consumer<QRecord> sink) throws QException
       {
-         String       pk      = table.getPrimaryKeyField();
-         Serializable lastKey = startAfterKey;
-         QQueryFilter user    = parseFilter(filterJson);
-
-         while(true)
+         KeysetPager pager = KeysetPager.forTable(table.getName())
+            .withFilter(parseFilter(filterJson))
+            .startingAfter(startAfterKey)
+            .withPageSize(pageSize)
+            .withTransaction(transaction)
+            .withQueryInputCustomizer(input ->
+            {
+               input.setShouldOmitHiddenFields(false);
+               input.setShouldMaskPasswords(false);
+               input.setShouldFetchHeavyFields(true);
+               input.setShouldTranslatePossibleValues(false);
+               input.setShouldGenerateDisplayValues(false);
+               input.withPermissionBypass("backups run");
+            });
+         if(!pager.isPrimaryKeyOrderable())
          {
-            QQueryFilter filter = new QQueryFilter();
-            if(lastKey != null)
-            {
-               filter.addCriteria(new QFilterCriteria(pk, QCriteriaOperator.GREATER_THAN, List.of(lastKey)));
-            }
-            if(user != null)
-            {
-               filter.addSubFilter(user);
-            }
-            filter.withOrderBy(new QFilterOrderBy(pk, true));
-            filter.setLimit(pageSize);
-
-            QueryInput queryInput = new QueryInput(table.getName());
-            queryInput.setFilter(filter);
-            queryInput.setShouldOmitHiddenFields(false);
-            queryInput.setShouldMaskPasswords(false);
-            queryInput.setShouldFetchHeavyFields(true);
-            queryInput.setShouldTranslatePossibleValues(false);
-            queryInput.setShouldGenerateDisplayValues(false);
-            if(transaction != null)
-            {
-               queryInput.setTransaction(transaction);
-            }
-            queryInput.withPermissionBypass("backups run");
-
-            List<QRecord> page = new QueryAction().execute(queryInput).getRecords();
-            for(QRecord record : page)
-            {
-               sink.accept(record);
-               lastKey = record.getValue(pk);
-            }
-            if(page.size() < pageSize)
-            {
-               return;
-            }
+            throw (new QException("Backup requires an orderable primary key on table " + table.getName()));
          }
+         pager.forEachPage(page -> page.forEach(sink));
       }
    }
 }

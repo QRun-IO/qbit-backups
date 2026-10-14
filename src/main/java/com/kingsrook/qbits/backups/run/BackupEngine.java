@@ -35,8 +35,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kingsrook.qbits.backups.BackupsRuntime;
 import com.kingsrook.qbits.backups.alerts.BackupAlertSink;
 import com.kingsrook.qbits.backups.codec.HashingOutputStream;
-import com.kingsrook.qbits.backups.events.BackupEvents;
 import com.kingsrook.qbits.backups.codec.TableArtifactWriter;
+import com.kingsrook.qbits.backups.events.BackupEvents;
 import com.kingsrook.qbits.backups.files.FileCopier;
 import com.kingsrook.qbits.backups.files.FileReference;
 import com.kingsrook.qbits.backups.files.FileReferenceProvider;
@@ -398,7 +398,7 @@ public class BackupEngine
             keyRange.put("min", allResults.isEmpty() ? null : allResults.get(0).firstKey());
             keyRange.put("max", allResults.isEmpty() ? null : allResults.get(allResults.size() - 1).lastKey());
             manifestTables.add(new BackupManifest.TableEntry(table.getName(), resolved.role().name(), table.getBackendName(), table.getPrimaryKeyField(),
-               fingerprint, TableFingerprints.descriptor(table, backendType), resolved.filterJson(), excluded, counter[0], rowsHash, keyRange, parts, consistency));
+               fingerprint, TableFingerprints.CORE_ALGORITHM, TableFingerprints.descriptor(table, backendType), resolved.filterJson(), excluded, counter[0], rowsHash, keyRange, parts, consistency));
             done++;
             catalogProgress(result, done, rows, bytesRaw, bytesStored);
             if(request.getCancelRequested().getAsBoolean())
