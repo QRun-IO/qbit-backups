@@ -20,7 +20,7 @@
    <properties>
       <qbit.guardrails.enforce>true</qbit.guardrails.enforce>
       <qbit.guardrails.strictUiApiRoutes>true</qbit.guardrails.strictUiApiRoutes>
-      <revision>0.1.0-RC.3</revision>
+      <revision>0.1.0-RC.4</revision>
       <maven.compiler.source>21</maven.compiler.source>
       <maven.compiler.target>21</maven.compiler.target>
       <jacoco.version>0.8.15</jacoco.version>
