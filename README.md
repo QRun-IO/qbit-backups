@@ -22,6 +22,10 @@ new BackupsQBitProducer()
    .produce(qInstance);
 ```
 
+## Setup
+
+This qbit ships no DDL and seeds nothing from a changelog: its one setup value, the storage bucket alias, belongs to your application. On a fresh install open Backups, read the Setup card, and run **Create default plan** on Backup plans (it asks only for the alias of a bucket your storage resolver provides). It creates the insert-only "Nightly full" plan: whole instance, data and audit tables, JSONL and gzip, 02:00 UTC, verified Sundays 04:00 UTC. Edit any setting afterwards. Help for every table, including how its rows get created, ships in `help/qbit-backups.yaml`.
+
 ## Naming
 
 Tables are `backups_<name>` (lowercase snake_case, backend name equal to the table name). Permissions are `backups.<action>`.

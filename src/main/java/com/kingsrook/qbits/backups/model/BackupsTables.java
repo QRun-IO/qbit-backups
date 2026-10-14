@@ -38,6 +38,7 @@ import com.kingsrook.qqq.backend.core.model.metadata.fields.QFieldMetaData;
 import com.kingsrook.qqq.backend.core.model.metadata.tables.QFieldSection;
 import com.kingsrook.qqq.backend.core.model.metadata.tables.Tier;
 import com.kingsrook.qqq.backend.core.model.metadata.fields.QFieldType;
+import com.kingsrook.qqq.backend.core.model.metadata.help.QHelpContent;
 import com.kingsrook.qqq.backend.core.model.metadata.joins.JoinOn;
 import com.kingsrook.qqq.backend.core.model.metadata.joins.JoinType;
 import com.kingsrook.qqq.backend.core.model.metadata.joins.QJoinMetaData;
@@ -446,8 +447,8 @@ public final class BackupsTables
          .withField(new QFieldMetaData("pruneBucketAlias", QFieldType.STRING).withMaxLength(100))
          .withField(new QFieldMetaData("prefix", QFieldType.STRING).withMaxLength(255))
          .withField(new QFieldMetaData("critical", QFieldType.BOOLEAN).withDefaultValue(false))
-         .withField(enumField("format", "format", "JSONL"))
-         .withField(enumField("compression", "compression", "GZIP"))
+         .withField(enumField("format", "format", "JSONL").withHelpContent(new QHelpContent("JSONL, CSV and JSONL_AND_CSV are available. PARQUET is not available yet and is refused when the plan is saved.")))
+         .withField(enumField("compression", "compression", "GZIP").withHelpContent(new QHelpContent("GZIP and NONE are available. ZSTD is not available yet and is refused when the plan is saved.")))
          .withField(enumField("encryptionMode", "encryption_mode", "NONE"))
          .withField(new QFieldMetaData("encryptionKeyRef", QFieldType.STRING).withMaxLength(100))
          .withField(enumField("sensitiveFieldPolicy", "sensitive_policy", "EXCLUDE"))
@@ -455,12 +456,15 @@ public final class BackupsTables
          .withField(enumField("fileObjectPolicy", "file_policy", "COPY"))
          .withField(enumField("fileMissingPolicy", "file_missing_policy", "WARN"))
          .withField(enumField("consistency", "consistency", "SNAPSHOT_PREFERRED"))
-         .withField(new QFieldMetaData("useReadReplica", QFieldType.BOOLEAN).withDefaultValue(false))
-         .withField(enumField("incrementalMode", "incremental_mode", "FULL"))
-         .withField(enumField("nativeDump", "native_dump", "NONE"))
+         .withField(new QFieldMetaData("useReadReplica", QFieldType.BOOLEAN).withDefaultValue(false)
+            .withHelpContent(new QHelpContent("Not available yet: backups always read from the application's own backend. Leave this off; turning it on is refused when the plan is saved.")))
+         .withField(enumField("incrementalMode", "incremental_mode", "FULL")
+            .withHelpContent(new QHelpContent("Only FULL is available yet. CHANGED_SINCE_LAST is not available yet and is refused when the plan is saved.")))
+         .withField(enumField("nativeDump", "native_dump", "NONE")
+            .withHelpContent(new QHelpContent("Only NONE is available yet. Native database dumps (PG_DUMP_CUSTOM) are not available yet and are refused when the plan is saved.")))
          .withField(new QFieldMetaData("cronExpression", QFieldType.STRING).withMaxLength(100))
          .withField(new QFieldMetaData("cronTimeZoneId", QFieldType.STRING).withMaxLength(60))
-         .withField(roInt("scheduledJobId"))
+         .withField(roInt("scheduledJobId").withHelpContent(new QHelpContent("Not used: a plan's schedules are scheduled jobs found by their foreign key (backups_plan for the backup, backups_plan_verify for the verification), so look there.")))
          .withField(new QFieldMetaData("slaHours", QFieldType.INTEGER).withDefaultValue(26))
          .withField(new QFieldMetaData("verifySlaDays", QFieldType.INTEGER).withDefaultValue(8))
          .withField(new QFieldMetaData("verifyFileSamplePercent", QFieldType.INTEGER).withDefaultValue(100))

@@ -1,0 +1,58 @@
+bundle: qbit-backups
+version: 1
+layer: QBIT
+# Help for the Backups app and every backups_* table, in the QQQ help-bundle format
+# (qqq#1198). Each table entry says what the table is for and how its rows get
+# created, so an empty table explains itself. BackupsHelp applies it until the core
+# HelpBundles registry ships in a QQQ release (STAND-IN(core=#1198)).
+# Summaries stay under 120 characters (BackupsTablesGuardrailTest).
+entries:
+  - key: app:backups;slot:help
+    summary: "Back up, verify and restore the application's data to S3-compatible storage."
+    content: |
+      The Setup card on the home lists what a working backup needs (a plan, a storage bucket, a schedule, verification) with the next step for each. A new installation has no plan: run Create default plan on Backup plans, which asks only for the storage bucket alias, or add a plan with New. Everything else (runs, artifacts, verifications, restores) is written by the backups themselves.
+
+  - key: table:backups_plan;slot:help
+    summary: "A backup plan: what is backed up, where it goes, when it runs, how long it is kept and how it is verified."
+    content: |
+      **How rows get created:** an administrator adds one with New, or runs Create default plan, which adds "Nightly full" (the whole instance, data and audit tables, JSONL and gzip, every night at 02:00 UTC, verified on Sundays) and asks only for the storage bucket alias. The alias names a bucket your application provides to Backups; no key or endpoint is ever stored here. A plan with a cron expression runs on its own once it is active; Run backup now runs it by hand. A few settings (PARQUET, ZSTD, incremental, native dump, read replica) are not available yet and are refused when the plan is saved.
+
+  - key: table:backups_plan_scope;slot:help
+    summary: "One include or exclude rule of a plan: an app, a qbit, a table or a table role."
+    content: |
+      **How rows get created:** an administrator adds them as Scope rules on a plan record. A plan whose scope is Instance backs up everything allowed by its roles and needs no rules; a plan limited to apps, qbits or tables is made of these rules, and an Exclude rule always wins over an Include.
+
+  - key: table:backups_run;slot:help
+    summary: "One execution of a plan, or an ad-hoc export: its status, size, rows, files and storage location."
+    content: |
+      **How rows get created:** only the backups write it. Run backup now, a plan's schedule, a pre-restore safety backup, Resume and Import backups from storage each add a row. Nothing is added by hand; Verify backup, Download, Restore and Prune are actions on a run.
+
+  - key: table:backups_artifact;slot:help
+    summary: "One stored object of a run: a table part, its manifest, checksums or a file index, with its hash and size."
+    content: |
+      **How rows get created:** only the backups write it, one row per object a run stores. They appear as Artifacts on a run record, and Restore this table and Download work from here.
+
+  - key: table:backups_verification;slot:help
+    summary: "The result of checking a backup: that it is in storage, that it decodes, or that it restores into scratch."
+    content: |
+      **How rows get created:** only verification writes it. Run Verify backup on a run (storage, content or test restore), or give a plan a verify cron expression so it verifies its latest backup on a schedule. The newest result also shows on the plan and the home.
+
+  - key: table:backups_restore_run;slot:help
+    summary: "One restore of a backup into the application: mode, id strategy, row and file counts and its safety backup."
+    content: |
+      **How rows get created:** only Restore writes it. Run Restore on a backup run, or Restore this table on an artifact: Review previews what would change before anything is written. A restore that replaces data takes a safety backup first and links it here.
+
+  - key: table:backups_restore_run_table;slot:help
+    summary: "Per-table results of a restore: rows inserted, updated and skipped and how the schema matched."
+    content: |
+      **How rows get created:** only Restore writes it, one row per table restored. They appear as Tables restored on a restore record.
+
+  - key: table:backups_file_object;slot:help
+    summary: "The content-addressed store of copied files, shared by runs, with reference counts and verification."
+    content: |
+      **How rows get created:** only backups write it. When a plan copies the files its rows reference, each distinct file (by SHA-256) is stored once and every run that uses it adds a reference; Prune lowers the counts and removes a file when no run needs it.
+
+  - key: table:backups_id_map;slot:help
+    summary: "Old id to new id pairs recorded while restoring with new ids, so related rows can be rewritten."
+    content: |
+      **How rows get created:** only Restore writes it, and only when a restore uses the Remap new ids strategy. The rows are working data for that restore and are cleared when it finishes, so this table is usually empty.

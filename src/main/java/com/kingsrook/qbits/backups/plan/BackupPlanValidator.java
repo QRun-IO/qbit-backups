@@ -176,6 +176,10 @@ public final class BackupPlanValidator
       {
          errors.add("Native database dumps are not available yet. Use NONE.");
       }
+      if(settings.bool("useReadReplica", false))
+      {
+         errors.add("Reading from a replica is not available yet: backups read from the application's own backend. Turn Use read replica off.");
+      }
    }
 
 
