@@ -106,7 +106,7 @@ public final class BackupsTestUtils
       new BackupsQBitProducer().withQBitConfig(config).withNamespace("backups").produce(qInstance);
 
       new QInstanceValidator().validate(qInstance);
-      QContext.init(qInstance, new QSession());
+      QContext.init(qInstance, new QSession().withPermissions("backups.restore"));
       return (qInstance);
    }
 

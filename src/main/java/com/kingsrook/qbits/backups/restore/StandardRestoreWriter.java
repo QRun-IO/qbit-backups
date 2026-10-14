@@ -18,7 +18,6 @@ package com.kingsrook.qbits.backups.restore;
 
 
 import java.io.Serializable;
-import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -30,8 +29,8 @@ import com.kingsrook.qqq.backend.core.actions.tables.InsertAction;
 import com.kingsrook.qqq.backend.core.actions.tables.UpdateAction;
 import com.kingsrook.qqq.backend.core.context.QContext;
 import com.kingsrook.qqq.backend.core.exceptions.QException;
-import com.kingsrook.qqq.backend.core.logging.QLogger;
 import com.kingsrook.qqq.backend.core.model.actions.tables.ActionFlag;
+import com.kingsrook.qqq.backend.core.model.actions.tables.RestoreWriteFlag;
 import com.kingsrook.qqq.backend.core.model.actions.tables.delete.DeleteInput;
 import com.kingsrook.qqq.backend.core.model.actions.tables.delete.DeleteOutput;
 import com.kingsrook.qqq.backend.core.model.actions.tables.insert.InsertInput;
@@ -41,50 +40,14 @@ import com.kingsrook.qqq.backend.core.model.metadata.QBackendMetaData;
 import com.kingsrook.qqq.backend.core.model.metadata.tables.QTableMetaData;
 import com.kingsrook.qqq.backend.core.modules.backend.QBackendModuleDispatcher;
 import com.kingsrook.qqq.backend.core.modules.backend.QBackendModuleInterface;
-import static com.kingsrook.qqq.backend.core.logging.LogUtils.logPair;
+import com.kingsrook.qqq.backend.core.modules.backend.SequenceResyncResult;
 
 
 /*******************************************************************************
- ** STAND-IN(core=QRun-IO/qqq#1111, removeBy=4.1.0-RC.6)
- ** STAND-IN(core=QRun-IO/qqq#1112, removeBy=4.1.0-RC.6)
- ** The default RestoreWriter: the standard Insert, Update and Delete actions.
- **
- ** Stand-ins (replace with the core API when QQQ 4.1.0-RC.5 ships):
- ** <ul>
- ** <li>RestoreWriteFlag (QRun-IO/qqq#1111) is created reflectively when the class is
- ** present.  Without it, the DML audit is omitted (a summary audit is written per
- ** table instead), but created and modified dates may be set by the normal defaults.</li>
- ** <li>resyncKeySequences (QRun-IO/qqq#1112) is called reflectively on the backend
- ** module when it exists; otherwise it is a no-op that the Review reports.</li>
- ** </ul>
+ ** The default RestoreWriter using core restore flags and key sequence resync.
  *******************************************************************************/
 public class StandardRestoreWriter implements RestoreWriter
 {
-   private static final QLogger LOG = QLogger.getLogger(StandardRestoreWriter.class);
-
-   private static final String FLAG_CLASS = "com.kingsrook.qqq.backend.core.model.actions.tables.RestoreWriteFlag";
-
-   private static final Class<?> FLAG = lookup(FLAG_CLASS);
-
-
-
-   /*******************************************************************************
-    **
-    *******************************************************************************/
-   private static Class<?> lookup(String name)
-   {
-      try
-      {
-         return (Class.forName(name));
-      }
-      catch(ClassNotFoundException | LinkageError e)
-      {
-         return (null);
-      }
-   }
-
-
-
    /*******************************************************************************
     ** {@inheritDoc}
     *******************************************************************************/
@@ -150,27 +113,15 @@ public class StandardRestoreWriter implements RestoreWriter
 
 
    /*******************************************************************************
-    ** Create the core flag (when the running QQQ has it) and hand it to the input.
+    ** Apply the core restore behavior requested by the caller.
     *******************************************************************************/
-   private void addFlag(RestoreRequest options, java.util.function.Consumer<ActionFlag> sink) throws QException
+   private void addFlag(RestoreRequest options, java.util.function.Consumer<ActionFlag> sink)
    {
-      if(FLAG == null)
-      {
-         return;
-      }
-      try
-      {
-         Object flag = FLAG.getDeclaredConstructor().newInstance();
-         FLAG.getMethod("withSuppressAutomations", boolean.class).invoke(flag, options.getSuppressAutomations());
-         FLAG.getMethod("withRunCustomizers", boolean.class).invoke(flag, options.getRunCustomizers());
-         FLAG.getMethod("withPerRecordAudit", boolean.class).invoke(flag, options.getPerRecordAudit());
-         FLAG.getMethod("withPublishEvents", boolean.class).invoke(flag, options.getPublishEvents());
-         sink.accept((ActionFlag) flag);
-      }
-      catch(ReflectiveOperationException | ClassCastException e)
-      {
-         throw (new QException("Could not use the core restore flag: " + e.getMessage(), e));
-      }
+      sink.accept(new RestoreWriteFlag()
+         .withSuppressAutomations(options.getSuppressAutomations())
+         .withRunCustomizers(options.getRunCustomizers())
+         .withPerRecordAudit(options.getPerRecordAudit())
+         .withPublishEvents(options.getPublishEvents()));
    }
 
 
@@ -181,7 +132,7 @@ public class StandardRestoreWriter implements RestoreWriter
    @Override
    public boolean usesCoreRestoreFlag()
    {
-      return (FLAG != null);
+      return (true);
    }
 
 
@@ -192,24 +143,7 @@ public class StandardRestoreWriter implements RestoreWriter
    @Override
    public boolean canResyncSequences()
    {
-      return (resyncMethod() != null);
-   }
-
-
-
-   /*******************************************************************************
-    **
-    *******************************************************************************/
-   private static Method resyncMethod()
-   {
-      try
-      {
-         return (QBackendModuleInterface.class.getMethod("resyncKeySequences", QBackendMetaData.class, Collection.class));
-      }
-      catch(NoSuchMethodException | LinkageError e)
-      {
-         return (null);
-      }
+      return (true);
    }
 
 
@@ -220,12 +154,6 @@ public class StandardRestoreWriter implements RestoreWriter
    @Override
    public List<String> resyncSequences(Collection<QTableMetaData> tables) throws QException
    {
-      Method method = resyncMethod();
-      if(method == null)
-      {
-         return (List.of());
-      }
-
       Map<String, List<QTableMetaData>> byBackend = new LinkedHashMap<>();
       for(QTableMetaData table : tables)
       {
@@ -236,22 +164,13 @@ public class StandardRestoreWriter implements RestoreWriter
       for(Map.Entry<String, List<QTableMetaData>> entry : byBackend.entrySet())
       {
          QBackendMetaData backend = QContext.getQInstance().getBackend(entry.getKey());
-         try
+         QBackendModuleInterface module = new QBackendModuleDispatcher().getQBackendModule(backend);
+         for(SequenceResyncResult result : module.resyncKeySequences(backend, entry.getValue()))
          {
-            QBackendModuleInterface module = new QBackendModuleDispatcher().getQBackendModule(backend);
-            for(Object result : (List<?>) method.invoke(module, backend, entry.getValue()))
+            if(result.getStatus() == SequenceResyncResult.Status.RESYNCED)
             {
-               Object status = result.getClass().getMethod("getStatus").invoke(result);
-               if("RESYNCED".equals(String.valueOf(status)))
-               {
-                  resynced.add(String.valueOf(result.getClass().getMethod("getTableName").invoke(result)));
-               }
+               resynced.add(result.getTableName());
             }
-         }
-         catch(ReflectiveOperationException e)
-         {
-            LOG.warn("Could not resync key sequences", e, logPair("backend", entry.getKey()));
-            throw (new QException("Could not resync key sequences on backend " + entry.getKey() + ": " + e.getMessage(), e));
          }
       }
       return (resynced);

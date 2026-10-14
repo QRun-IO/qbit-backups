@@ -33,8 +33,8 @@ import java.util.Optional;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kingsrook.qbits.backups.BackupsQBitConfig;
 import com.kingsrook.qbits.backups.BackupsRuntime;
-import com.kingsrook.qbits.backups.alerts.BackupAlerts;
 import com.kingsrook.qbits.backups.alerts.BackupAlertSink;
+import com.kingsrook.qbits.backups.alerts.BackupAlerts;
 import com.kingsrook.qbits.backups.codec.ArtifactTransform;
 import com.kingsrook.qbits.backups.codec.HashingOutputStream;
 import com.kingsrook.qbits.backups.codec.JsonlRowCodec;
@@ -274,7 +274,7 @@ public class BackupVerifier
             List<String> excluded = entry.excludedFields() == null ? List.of() : entry.excludedFields().stream().map(BackupManifest.ExcludedField::name).toList();
             codec = new JsonlRowCodec(table, excluded);
             String backendType = qInstance.getBackend(table.getBackendName()) == null ? null : qInstance.getBackend(table.getBackendName()).getBackendType();
-            roundTrip = TableFingerprints.of(table, backendType).equals(entry.fingerprint());
+            roundTrip = TableFingerprints.matches(entry, table, backendType);
             if(!roundTrip)
             {
                findings.warn("Table " + entry.name() + " has changed since this backup; rows were parsed but not checked for an exact round trip");

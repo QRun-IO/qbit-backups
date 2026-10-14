@@ -10,7 +10,7 @@
 ## Requirements
 
 - Java 21.
-- QQQ 4.1 (built against `4.1.0-RC.5`).
+- QQQ 4.1 (targets `4.1.0-RC.6`, not yet released).
 
 ## Install
 
@@ -35,6 +35,15 @@ Follow the QQQ [adoption checklist](https://github.com/QRun-IO/qqq/blob/develop/
 ```bash
 ./mvnw verify
 ```
+
+Before RC.6 is released, verify against the locally installed core build only:
+
+```bash
+./mvnw -B verify -Dqqq.snapshot.version=4.1.0-ARCHRC6-SNAPSHOT
+```
+
+The POM stays on RC.6. See [the RC.6 migration notes](docs/RC6-MIGRATION.md) for
+fingerprint compatibility, paging guarantees and restore permissions.
 
 Always use the Maven wrapper (Maven 3.9.11); Maven 3.10 cannot read the parent POM.
 
