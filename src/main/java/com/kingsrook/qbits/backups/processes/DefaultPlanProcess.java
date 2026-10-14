@@ -221,7 +221,12 @@ public final class DefaultPlanProcess
          {
             sawRecord = true;
             BackupPlanValidator.Result result = BackupPlanValidator.validate(PlanSettings.of(record), null, false, List.of());
-            if(result.ok())
+            boolean nameTaken = !new BackupCatalog().where(BackupsTables.PLAN, "name", record.getValueString("name")).isEmpty();
+            if(nameTaken)
+            {
+               problems.add("A plan named " + record.getValueString("name") + " already exists. Rename it or edit that plan.");
+            }
+            if(result.ok() && !nameTaken)
             {
                create.incrementCountAndAddPrimaryKey(record.getValueString("planKey"));
                output.getRecords().add(record);

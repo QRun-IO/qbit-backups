@@ -21,6 +21,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import com.kingsrook.qbits.backups.BackupsQBitConfig;
 import com.kingsrook.qbits.backups.BackupsRuntime;
 import com.kingsrook.qbits.backups.model.BackupsTables;
 import com.kingsrook.qbits.backups.processes.DefaultPlanProcess;
@@ -70,8 +71,20 @@ public final class BackupsSetupStatus
     *******************************************************************************/
    public static List<Item> load(List<QRecord> plans)
    {
+      BackupsQBitConfig config = BackupsRuntime.isInstalled() ? BackupsRuntime.getConfig() : null;
+      return (load(plans, config != null && hasContent(config.getSchedulerName())));
+   }
+
+
+
+   /*******************************************************************************
+    ** Build the items from the plans, given whether a scheduler is configured (a plan
+    ** cron only fires through the scheduler the qbit config names).
+    *******************************************************************************/
+   public static List<Item> load(List<QRecord> plans, boolean schedulerConfigured)
+   {
       List<Item> items = new ArrayList<>();
-      List<QRecord> active = plans.stream().filter(p -> !Boolean.FALSE.equals(p.getValueBoolean("isActive"))).toList();
+      List<QRecord> active = plans.stream().filter(p -> Boolean.TRUE.equals(p.getValueBoolean("isActive"))).toList();
 
       ///////////
       // plans //
@@ -133,7 +146,11 @@ public final class BackupsSetupStatus
       // schedule: an active plan has a cron //
       /////////////////////////////////////////
       long scheduled = active.stream().filter(p -> hasContent(p.getValueString("cronExpression"))).count();
-      items.add(scheduled == 0
+      String noScheduler = "No scheduler is configured (schedulerName on the qbit config), so plan crons are saved but never fire";
+      items.add(!schedulerConfigured
+         ? new Item("Schedule", BackupsTables.PLAN, State.TODO, noScheduler + ". Backups run only when someone clicks Run backup now.",
+            "Set schedulerName on the qbit config (or run your own tick if the application does), then give each plan a cron expression.")
+         : scheduled == 0
          ? new Item("Schedule", BackupsTables.PLAN, State.TODO, "No active plan has a schedule: backups run only when someone clicks Run backup now.", "Set a Cron expression on a plan (for example " + DefaultPlanProcess.CRON + ").")
          : new Item("Schedule", BackupsTables.PLAN, State.OK, scheduled + " active plan" + (scheduled == 1 ? " runs" : "s run") + " on a schedule.", null));
 
@@ -141,7 +158,10 @@ public final class BackupsSetupStatus
       // verification //
       //////////////////
       long verified = active.stream().filter(p -> hasContent(p.getValueString("verifyCronExpression"))).count();
-      items.add(verified == 0
+      items.add(!schedulerConfigured
+         ? new Item("Verification", BackupsTables.VERIFICATION, State.TODO, noScheduler + ", so no verification is scheduled.",
+            "Set schedulerName on the qbit config, then a verify cron expression on a plan; or run Verify backup on a run by hand.")
+         : verified == 0
          ? new Item("Verification", BackupsTables.VERIFICATION, State.OPTIONAL, "No plan verifies its backups on a schedule.",
             "Set a Verify cron expression on a plan, or run Verify backup on a run. A backup nobody has restored is a guess.")
          : new Item("Verification", BackupsTables.VERIFICATION, State.OK, verified + " active plan" + (verified == 1 ? " verifies" : "s verify") + " its latest backup on a schedule.", null));

@@ -147,6 +147,23 @@ class BackupsTablesGuardrailTest
 
 
    /*******************************************************************************
+    ** A host's own help in the slot is never replaced by the bundle.
+    *******************************************************************************/
+   @Test
+   void hostHelpIsKept() throws Exception
+   {
+      QTableMetaData table = qInstance.getTable(BackupsTables.RUN);
+      table.withHelpContent(BackupsHelp.SLOT, new QHelpContent("Host help for runs."));
+      qInstance.getApp("backups").withHelpContent(BackupsHelp.SLOT, new QHelpContent("Host help for the app."));
+      BackupsHelp.apply(qInstance, "backups");
+      assertThat(table.getHelpContent().get(BackupsHelp.SLOT)).singleElement().satisfies(h -> assertThat(h.getContent()).isEqualTo("Host help for runs."));
+      assertThat(qInstance.getApp("backups").getHelpContent().get(BackupsHelp.SLOT)).singleElement().satisfies(h -> assertThat(h.getContent()).isEqualTo("Host help for the app."));
+      assertThat(qInstance.getTable(BackupsTables.PLAN).getHelpContent().get(BackupsHelp.SLOT).get(0).getContent()).contains("How rows get created");
+   }
+
+
+
+   /*******************************************************************************
     **
     *******************************************************************************/
    private List<String> backupsTables()

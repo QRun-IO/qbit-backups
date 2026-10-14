@@ -183,4 +183,23 @@ class DefaultPlanProcessTest
       run("no-such-bucket", true);
       assertThat(catalog.query(BackupsTables.PLAN, new com.kingsrook.qqq.backend.core.model.actions.tables.query.QQueryFilter())).isEmpty();
    }
+
+
+
+   /*******************************************************************************
+    ** A plan that already has the name Nightly full (under another key) is refused in
+    ** Review, never "will be created".
+    *******************************************************************************/
+   @Test
+   void reviewRefusesATakenName() throws Exception
+   {
+      catalog.insert(BackupsTables.PLAN, new java.util.LinkedHashMap<>(Map.of("name", DefaultPlanProcess.PLAN_NAME, "planKey", "other-key", "isActive", false, "scopeType", "INSTANCE", "storageBucketAlias", "backups")));
+      List<ProcessSummaryLine> review = run("backups", false);
+      assertThat(review).noneSatisfy(line -> assertThat(line.getPluralFutureMessage()).contains("will be created"));
+      assertThat(review).anySatisfy(line ->
+      {
+         assertThat(line.getStatus().name()).isEqualTo("ERROR");
+         assertThat(String.join(" ", line.getBulletsOfText())).contains("already exists");
+      });
+   }
 }

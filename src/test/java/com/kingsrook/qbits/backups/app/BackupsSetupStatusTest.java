@@ -94,7 +94,7 @@ class BackupsSetupStatusTest
    @Test
    void aBarePlanNeedsASchedule()
    {
-      List<Item> items = BackupsSetupStatus.load(List.of(plan(Map.of())));
+      List<Item> items = BackupsSetupStatus.load(List.of(plan(Map.of())), true);
       assertThat(item(items, "Backup plans").state()).isEqualTo(State.OK);
       assertThat(item(items, "Storage").state()).isEqualTo(State.OK);
       assertThat(item(items, "Schedule").state()).isEqualTo(State.TODO);
@@ -110,9 +110,30 @@ class BackupsSetupStatusTest
    @Test
    void aCompletePlanIsSetUp()
    {
-      List<Item> items = BackupsSetupStatus.load(List.of(plan(Map.of("cronExpression", DefaultPlanProcess.CRON, "verifyCronExpression", DefaultPlanProcess.VERIFY_CRON, "pruneBucketAlias", "backups"))));
+      List<Item> items = BackupsSetupStatus.load(List.of(plan(Map.of("cronExpression", DefaultPlanProcess.CRON, "verifyCronExpression", DefaultPlanProcess.VERIFY_CRON, "pruneBucketAlias", "backups"))), true);
       assertThat(items).extracting(Item::state).doesNotContain(State.TODO, State.DEFAULT);
       assertThat(items).extracting(Item::tableName).contains(BackupsTables.PLAN, BackupsTables.PLAN_SCOPE, BackupsTables.VERIFICATION);
+   }
+
+
+
+   /*******************************************************************************
+    ** Without a scheduler the crons never fire: Schedule and Verification are TODO, and a
+    ** plan whose isActive is null is not counted active (as at runtime).
+    *******************************************************************************/
+   @Test
+   void noSchedulerMeansCronsNeverFire()
+   {
+      QRecord complete = plan(Map.of("cronExpression", DefaultPlanProcess.CRON, "verifyCronExpression", DefaultPlanProcess.VERIFY_CRON, "pruneBucketAlias", "backups"));
+      List<Item> items = BackupsSetupStatus.load(List.of(complete), false);
+      assertThat(item(items, "Schedule").state()).isEqualTo(State.TODO);
+      assertThat(item(items, "Schedule").detail()).contains("No scheduler is configured");
+      assertThat(item(items, "Verification").state()).isEqualTo(State.TODO);
+      assertThat(item(items, "Verification").nextStep()).contains("schedulerName");
+
+      QRecord unset = new QRecord().withValue("name", "N").withValue("storageBucketAlias", "backups");
+      assertThat(item(BackupsSetupStatus.load(List.of(unset), true), "Backup plans").state()).isEqualTo(State.TODO);
+      assertThat(item(BackupsSetupStatus.load(List.of(complete)), "Schedule").state()).as("the test instance has no scheduler").isEqualTo(State.TODO);
    }
 
 
@@ -123,7 +144,7 @@ class BackupsSetupStatusTest
    @Test
    void problemsAreCalledOut()
    {
-      List<Item> items = BackupsSetupStatus.load(List.of(plan(Map.of("storageBucketAlias", "nowhere", "isActive", false, "scopeType", "TABLES"))));
+      List<Item> items = BackupsSetupStatus.load(List.of(plan(Map.of("storageBucketAlias", "nowhere", "isActive", false, "scopeType", "TABLES"))), true);
       assertThat(item(items, "Backup plans").state()).isEqualTo(State.TODO);
       assertThat(item(items, "Storage").state()).isEqualTo(State.TODO);
       assertThat(item(items, "Storage").detail()).contains("nowhere");
