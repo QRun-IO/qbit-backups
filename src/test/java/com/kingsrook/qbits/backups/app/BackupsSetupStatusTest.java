@@ -139,6 +139,25 @@ class BackupsSetupStatusTest
 
 
    /*******************************************************************************
+    ** A host that ticks plans itself is not told it needs a scheduler; a verify cron its
+    ** tick does not run is called out, and one it does run is fine.
+    *******************************************************************************/
+   @Test
+   void hostSchedulerCountsButUnrunVerifyIsCalledOut()
+   {
+      QRecord complete = plan(Map.of("cronExpression", DefaultPlanProcess.CRON, "verifyCronExpression", DefaultPlanProcess.VERIFY_CRON, "pruneBucketAlias", "backups"));
+      List<Item> items = BackupsSetupStatus.load(List.of(complete), false, "the website ticker", false);
+      assertThat(item(items, "Schedule").state()).isEqualTo(State.OK);
+      assertThat(item(items, "Schedule").detail()).contains("the website ticker");
+      assertThat(item(items, "Verification").state()).isEqualTo(State.OPTIONAL);
+      assertThat(item(items, "Verification").detail()).contains("Not run by the website ticker");
+
+      assertThat(item(BackupsSetupStatus.load(List.of(complete), false, "the website ticker", true), "Verification").state()).isEqualTo(State.OK);
+   }
+
+
+
+   /*******************************************************************************
     ** An alias that does not resolve, an inactive plan and a scoped plan are called out.
     *******************************************************************************/
    @Test

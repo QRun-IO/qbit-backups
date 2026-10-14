@@ -72,7 +72,8 @@ public final class BackupsSetupStatus
    public static List<Item> load(List<QRecord> plans)
    {
       BackupsQBitConfig config = BackupsRuntime.isInstalled() ? BackupsRuntime.getConfig() : null;
-      return (load(plans, config != null && hasContent(config.getSchedulerName())));
+      return (load(plans, config != null && hasContent(config.getSchedulerName()), config == null ? null : config.getHostSchedulerDescription(),
+         config != null && Boolean.TRUE.equals(config.getHostSchedulerRunsVerification())));
    }
 
 
@@ -83,6 +84,19 @@ public final class BackupsSetupStatus
     *******************************************************************************/
    public static List<Item> load(List<QRecord> plans, boolean schedulerConfigured)
    {
+      return (load(plans, schedulerConfigured, null, false));
+   }
+
+
+
+   /*******************************************************************************
+    ** Build the items from the plans. A host that runs plan crons with its own tick
+    ** (hostScheduler names it) has crons that fire; hostRunsVerification says whether
+    ** that tick also runs the verify cron.
+    *******************************************************************************/
+   public static List<Item> load(List<QRecord> plans, boolean schedulerConfigured, String hostScheduler, boolean hostRunsVerification)
+   {
+      boolean host = hasContent(hostScheduler);
       List<Item> items = new ArrayList<>();
       List<QRecord> active = plans.stream().filter(p -> Boolean.TRUE.equals(p.getValueBoolean("isActive"))).toList();
 
@@ -147,18 +161,22 @@ public final class BackupsSetupStatus
       /////////////////////////////////////////
       long scheduled = active.stream().filter(p -> hasContent(p.getValueString("cronExpression"))).count();
       String noScheduler = "No scheduler is configured (schedulerName on the qbit config), so plan crons are saved but never fire";
-      items.add(!schedulerConfigured
+      items.add(!schedulerConfigured && !host
          ? new Item("Schedule", BackupsTables.PLAN, State.TODO, noScheduler + ". Backups run only when someone clicks Run backup now.",
             "Set schedulerName on the qbit config (or run your own tick if the application does), then give each plan a cron expression.")
          : scheduled == 0
          ? new Item("Schedule", BackupsTables.PLAN, State.TODO, "No active plan has a schedule: backups run only when someone clicks Run backup now.", "Set a Cron expression on a plan (for example " + DefaultPlanProcess.CRON + ").")
-         : new Item("Schedule", BackupsTables.PLAN, State.OK, scheduled + " active plan" + (scheduled == 1 ? " runs" : "s run") + " on a schedule.", null));
+         : new Item("Schedule", BackupsTables.PLAN, State.OK, scheduled + " active plan" + (scheduled == 1 ? " runs" : "s run") + " on a schedule"
+            + (host && !schedulerConfigured ? ", run by " + hostScheduler + " (the application scheduler)." : "."), null));
 
       //////////////////
       // verification //
       //////////////////
       long verified = active.stream().filter(p -> hasContent(p.getValueString("verifyCronExpression"))).count();
-      items.add(!schedulerConfigured
+      items.add(host && !schedulerConfigured && !hostRunsVerification
+         ? new Item("Verification", BackupsTables.VERIFICATION, State.OPTIONAL, "Not run by " + hostScheduler + ": verify cron expressions are saved but nothing fires them.",
+            "Run Verify backup on a run by hand, or have the application scheduler run the backupVerifyPlan process for each plan.")
+         : !schedulerConfigured && !host
          ? new Item("Verification", BackupsTables.VERIFICATION, State.TODO, noScheduler + ", so no verification is scheduled.",
             "Set schedulerName on the qbit config, then a verify cron expression on a plan; or run Verify backup on a run by hand.")
          : verified == 0
