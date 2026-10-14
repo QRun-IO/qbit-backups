@@ -32,6 +32,7 @@ import com.kingsrook.qqq.backend.core.model.actions.tables.query.QQueryFilter;
 import com.kingsrook.qqq.backend.core.model.data.QRecord;
 import com.kingsrook.qqq.backend.core.model.metadata.QInstance;
 import com.kingsrook.qqq.backend.core.model.session.QSession;
+import com.kingsrook.qqq.backend.core.model.session.QSystemUserSession;
 import com.kingsrook.qqq.middleware.health.HealthIndicator;
 import com.kingsrook.qqq.middleware.health.model.metadata.HealthCheckResult;
 import com.kingsrook.qqq.middleware.health.model.metadata.HealthStatus;
@@ -79,7 +80,7 @@ public class BackupsHealthIndicator implements HealthIndicator
       boolean             ownsContext = QContext.getQInstance() == null;
       if(ownsContext)
       {
-         QContext.init(qInstance, new QSession());
+         QContext.init(qInstance, systemSession(qInstance));
       }
       try
       {
@@ -116,5 +117,17 @@ public class BackupsHealthIndicator implements HealthIndicator
             QContext.clear();
          }
       }
+   }
+
+
+
+   /*******************************************************************************
+    ** The session for a health request that has no QQQ context. It must be the
+    ** core system user: token-based authentication modules (OAuth2, Auth0)
+    ** reject any other tokenless session, which failed the check on such hosts.
+    *******************************************************************************/
+   static QSession systemSession(QInstance qInstance)
+   {
+      return (new QSystemUserSession(qInstance));
    }
 }
