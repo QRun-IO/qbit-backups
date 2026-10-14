@@ -109,7 +109,9 @@ class BackupEngineTest
       BackupManifest.TableEntry posts = manifest.table("blogPost");
       assertThat(posts.rowCount()).isEqualTo(7);
       assertThat(posts.excludedFields()).extracting(BackupManifest.ExcludedField::name).containsExactly("secretNote");
-      assertThat(posts.fingerprint()).startsWith("sha256:");
+      assertThat(posts.fingerprintAlgorithm()).isEqualTo(com.kingsrook.qbits.backups.manifest.TableFingerprints.CORE_ALGORITHM);
+      assertThat(posts.fingerprint()).isEqualTo("sha256:" + com.kingsrook.qqq.backend.core.model.metadata.tables.TableSchemaFingerprint.of(QContext.getQInstance().getTable("blogPost"), "memory").getHash());
+      assertThat(posts.schema()).isEqualTo(com.kingsrook.qqq.backend.core.model.metadata.tables.TableSchemaFingerprint.of(QContext.getQInstance().getTable("blogPost"), "memory").getDescriptor());
 
       BackupManifest.Part part = posts.parts().get(0);
       byte[] stored = BackupsTestUtils.BACKUPS.getBytes(result.getRunPrefix() + part.key());

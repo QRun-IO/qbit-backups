@@ -28,9 +28,8 @@ import com.kingsrook.qqq.backend.core.model.metadata.tables.QTableMetaData;
 
 /*******************************************************************************
  ** How a restore writes (spec 5.3 and 5.4).  The default implementation uses the
- ** plain Insert, Update and Delete actions, and selects the core RestoreWriteFlag
- ** (QRun-IO/qqq#1111) and the core key-sequence resync (#1112) reflectively when the
- ** running QQQ has them.  A backend specific writer can be supplied on the request.
+ ** plain Insert, Update and Delete actions with core RestoreWriteFlag and typed
+ ** key-sequence resync. A backend specific writer can be supplied on the request.
  **
  ** Whatever the implementation, record security, field security, unique keys and
  ** required-field validation still apply to every write.

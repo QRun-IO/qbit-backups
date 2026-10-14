@@ -341,14 +341,14 @@ public class RestorePass
       String    backendType = instance.getBackend(c.target.getBackendName()) == null ? null : instance.getBackend(c.target.getBackendName()).getBackendType();
       RestoreOutcome.TableOutcome o = c.outcome;
 
-      if(c.entry.fingerprint() != null && c.entry.fingerprint().equals(TableFingerprints.of(c.target, backendType)))
+      if(TableFingerprints.matches(c.entry, c.target, backendType))
       {
          o.setSchemaStatus("MATCH");
          return;
       }
 
-      Map<String, Object> backupFields = c.entry.schema() == null ? Map.of() : (Map<String, Object>) c.entry.schema().getOrDefault("fields", Map.of());
-      Map<String, Object> targetFields = (Map<String, Object>) TableFingerprints.descriptor(c.target, backendType).get("fields");
+      Map<String, Object> backupFields = TableFingerprints.fields(c.entry.schema());
+      Map<String, Object> targetFields = TableFingerprints.fields(TableFingerprints.descriptor(c.target, backendType));
       boolean incompatible = false;
       boolean different    = false;
 

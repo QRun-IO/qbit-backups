@@ -137,6 +137,7 @@ public record BackupManifest(
       String backend,
       String primaryKey,
       String fingerprint,
+      String fingerprintAlgorithm,
       Map<String, Object> schema,
       String filter,
       List<ExcludedField> excludedFields,

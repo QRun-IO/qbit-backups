@@ -1,0 +1,130 @@
+{
+  "author" : {
+    "schema" : {
+      "name" : "author",
+      "primaryKey" : "id",
+      "backendType" : "memory",
+      "fields" : {
+        "bio" : {
+          "type" : "TEXT",
+          "required" : false,
+          "maxLength" : null,
+          "pvs" : null,
+          "heavy" : false,
+          "sensitive" : false
+        },
+        "id" : {
+          "type" : "INTEGER",
+          "required" : false,
+          "maxLength" : null,
+          "pvs" : null,
+          "heavy" : false,
+          "sensitive" : false
+        },
+        "name" : {
+          "type" : "STRING",
+          "required" : false,
+          "maxLength" : null,
+          "pvs" : null,
+          "heavy" : false,
+          "sensitive" : false
+        }
+      },
+      "uniqueKeys" : [ ],
+      "associations" : [ ]
+    },
+    "fingerprint" : "sha256:c0fce31286898a15a98f9f46515b15c6eee4ffeb1f1eb39d6100833dfe3f760e"
+  },
+  "blogPost" : {
+    "schema" : {
+      "name" : "blogPost",
+      "primaryKey" : "id",
+      "backendType" : "memory",
+      "fields" : {
+        "authorId" : {
+          "type" : "INTEGER",
+          "required" : false,
+          "maxLength" : null,
+          "pvs" : "author",
+          "heavy" : false,
+          "sensitive" : false
+        },
+        "body" : {
+          "type" : "TEXT",
+          "required" : false,
+          "maxLength" : null,
+          "pvs" : null,
+          "heavy" : false,
+          "sensitive" : false
+        },
+        "createDate" : {
+          "type" : "DATE_TIME",
+          "required" : false,
+          "maxLength" : null,
+          "pvs" : null,
+          "heavy" : false,
+          "sensitive" : false
+        },
+        "id" : {
+          "type" : "INTEGER",
+          "required" : false,
+          "maxLength" : null,
+          "pvs" : null,
+          "heavy" : false,
+          "sensitive" : false
+        },
+        "mediaKey" : {
+          "type" : "STRING",
+          "required" : false,
+          "maxLength" : null,
+          "pvs" : null,
+          "heavy" : false,
+          "sensitive" : false
+        },
+        "price" : {
+          "type" : "DECIMAL",
+          "required" : false,
+          "maxLength" : null,
+          "pvs" : null,
+          "heavy" : false,
+          "sensitive" : false
+        },
+        "published" : {
+          "type" : "BOOLEAN",
+          "required" : false,
+          "maxLength" : null,
+          "pvs" : null,
+          "heavy" : false,
+          "sensitive" : false
+        },
+        "publishedOn" : {
+          "type" : "DATE",
+          "required" : false,
+          "maxLength" : null,
+          "pvs" : null,
+          "heavy" : false,
+          "sensitive" : false
+        },
+        "secretNote" : {
+          "type" : "STRING",
+          "required" : false,
+          "maxLength" : null,
+          "pvs" : null,
+          "heavy" : false,
+          "sensitive" : true
+        },
+        "title" : {
+          "type" : "STRING",
+          "required" : false,
+          "maxLength" : null,
+          "pvs" : null,
+          "heavy" : false,
+          "sensitive" : false
+        }
+      },
+      "uniqueKeys" : [ ],
+      "associations" : [ ]
+    },
+    "fingerprint" : "sha256:3a4de7479908cd4b4ce8eaa7a7af43e7cbaabbdbc2b9741bebeb24a6bd41b9ea"
+  }
+}

@@ -187,4 +187,22 @@ class RestoreSafetyTest
       QContext.setQSession(new QSession().withPermissions("backups.view", "backups.restore"));
       assertThat(new RestoreEngine().plan(request).errors()).isEmpty();
    }
+
+
+   /*******************************************************************************
+    ** The core restore permission is required even in anonymous demo mode, and
+    ** Review reports it before a restore can create a run or write any data.
+    *******************************************************************************/
+   @Test
+   void testCoreRestorePermissionIsRequiredWhenAnonymous() throws Exception
+   {
+      BackupRunResult run = RestoreTestSupport.backup(Map.of());
+      QContext.setQSession(new QSession());
+      RestoreRequest request = RestoreTestSupport.request(run, RestoreRequest.MODE_UPSERT, "blogPost");
+      assertThat(new RestoreEngine().plan(request).errors()).anyMatch(e -> e.contains("backups.restore"));
+      assertThatThrownBy(() -> new RestoreEngine().execute(request)).hasMessageContaining("backups.restore");
+      assertThatThrownBy(() -> new StandardRestoreWriter().insert(QContext.getQInstance().getTable("blogPost"),
+         List.of(new com.kingsrook.qqq.backend.core.model.data.QRecord().withValue("id", 99)), request, null)).hasMessageContaining("backups.restore");
+   }
+
 }
