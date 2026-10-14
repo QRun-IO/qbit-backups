@@ -18,16 +18,24 @@ package com.kingsrook.qbits.backups.alerts;
 
 
 import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import com.kingsrook.qbits.backups.BackupsRuntime;
 import com.kingsrook.qbits.backups.VerifyTestSupport;
-import com.kingsrook.qbits.backups.alerts.fakeapi.AlertsInstanceMetaData;
-import com.kingsrook.qbits.backups.alerts.fakeapi.QAlertTypeMetaData;
-import com.kingsrook.qbits.backups.alerts.fakeapi.QAlerts;
 import com.kingsrook.qbits.backups.sla.SlaChecker;
+import com.kingsrook.qqq.backend.core.alerts.AlertResolution;
+import com.kingsrook.qqq.backend.core.alerts.AlertSignal;
+import com.kingsrook.qqq.backend.core.alerts.AlertSinkInterface;
+import com.kingsrook.qqq.backend.core.alerts.AlertsInstanceMetaData;
+import com.kingsrook.qqq.backend.core.alerts.QAlerts;
 import com.kingsrook.qqq.backend.core.context.QContext;
+import com.kingsrook.qqq.backend.core.instances.QInstanceValidator;
 import com.kingsrook.qqq.backend.core.model.data.QRecord;
+import com.kingsrook.qqq.backend.core.model.metadata.QInstance;
+import com.kingsrook.qqq.backend.core.model.metadata.code.QCodeReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -35,14 +43,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 
 /*******************************************************************************
- ** The Alerts qbit adapter, bound reflectively.  The SPI is not in QQQ 4.1.0-RC.4,
- ** so these tests run it against a test double with the same shape as the real
- ** com.kingsrook.qqq.backend.core.alerts package (QRun-IO/qqq PR #1108).
+ ** The backup adapter against the released core alerts API and a registered sink.
  *******************************************************************************/
 class AlertsQBitAlertSinkTest
 {
-   private static final String FAKE_API = "com.kingsrook.qbits.backups.alerts.fakeapi";
-
 
 
    /*******************************************************************************
@@ -52,9 +56,11 @@ class AlertsQBitAlertSinkTest
    void setUp() throws Exception
    {
       VerifyTestSupport.setUp(3);
-      QAlerts.reset();
-      QAlertTypeMetaData.ADDED.clear();
-      AlertsInstanceMetaData.installed = true;
+      RecordingSink.raised.clear();
+      RecordingSink.resolved.clear();
+      RecordingSink.heartbeats.clear();
+      RecordingSink.failWith = null;
+      AlertsInstanceMetaData.ofOrWithNew(QContext.getQInstance()).withSink(new QCodeReference(RecordingSink.class));
    }
 
 
@@ -65,8 +71,8 @@ class AlertsQBitAlertSinkTest
    @AfterEach
    void tearDown()
    {
-      AlertsInstanceMetaData.installed = false;
-      QAlerts.reset();
+      BackupsRuntime.reset();
+      QContext.clear();
    }
 
 
@@ -78,7 +84,7 @@ class AlertsQBitAlertSinkTest
    @Test
    void testRaiseResolveHeartbeat()
    {
-      AlertsQBitAlertSink sink = new AlertsQBitAlertSink(FAKE_API);
+      AlertsQBitAlertSink sink = new AlertsQBitAlertSink();
       Map<String, String> detail = new LinkedHashMap<>();
       detail.put("plan", "nightly");
       detail.put("slaHours", "26");
@@ -87,60 +93,90 @@ class AlertsQBitAlertSinkTest
       sink.resolve("backups.plan.missed", "backups.plan.missed:nightly");
       sink.heartbeat("backups.plan:nightly", 93600, 0);
 
-      assertThat(QAlerts.RAISED).hasSize(1);
-      var signal = QAlerts.RAISED.get(0);
-      assertThat(signal.alertTypeName).isEqualTo("backups.plan.missed");
-      assertThat(signal.dedupKey).isEqualTo("backups.plan.missed:nightly");
-      assertThat(signal.severity.name()).isEqualTo("CRITICAL");
-      assertThat(signal.title).isEqualTo("A backup did not run in time");
-      assertThat(signal.summary).isEqualTo("plan=nightly, slaHours=26");
-      assertThat(signal.attributes).containsEntry("plan", "nightly").containsEntry("slaHours", "26");
-      assertThat(QAlerts.RESOLVED).containsExactly("backups.plan.missed|backups.plan.missed:nightly|Cleared by the Backups qbit");
-      assertThat(QAlerts.HEARTBEATS).containsExactly("backups.plan:nightly");
+      assertThat(RecordingSink.raised).hasSize(1);
+      var signal = RecordingSink.raised.get(0);
+      assertThat(signal.getAlertTypeName()).isEqualTo("backups.plan.missed");
+      assertThat(signal.getDedupKey()).isEqualTo("backups.plan.missed:nightly");
+      assertThat(signal.getSeverity().name()).isEqualTo("CRITICAL");
+      assertThat(signal.getTitle()).isEqualTo("A backup did not run in time");
+      assertThat(signal.getSummary()).isEqualTo("plan=nightly, slaHours=26");
+      assertThat(signal.getAttributes()).containsEntry("plan", "nightly").containsEntry("slaHours", "26");
+      assertThat(RecordingSink.resolved).singleElement().satisfies(resolution ->
+      {
+         assertThat(resolution.getAlertTypeName()).isEqualTo("backups.plan.missed");
+         assertThat(resolution.getDedupKey()).isEqualTo("backups.plan.missed:nightly");
+         assertThat(resolution.getNote()).isEqualTo("Cleared by the Backups qbit");
+      });
+      assertThat(RecordingSink.heartbeats).containsExactly("backups.plan:nightly");
 
       sink.raise("backups.storage.debris", "k", BackupAlertSink.Severity.INFO, "no detail", null);
-      assertThat(QAlerts.RAISED.get(1).summary).isNull();
+      assertThat(RecordingSink.raised.get(1).getSummary()).isNull();
    }
 
 
 
    /*******************************************************************************
-    ** Without the Alerts qbit installed (no alerts meta-data on the instance) every
+    ** Without a configured sink, even with alert type metadata present, every
     ** call is a no-op.
     *******************************************************************************/
    @Test
    void testNoOpWithoutTheAlertsQBit()
    {
-      AlertsInstanceMetaData.installed = false;
-      AlertsQBitAlertSink sink = new AlertsQBitAlertSink(FAKE_API);
-      sink.raise("t", "k", BackupAlertSink.Severity.INFO, "x", Map.of());
-      sink.resolve("t", "k");
-      sink.heartbeat("m", 1, 1);
-      assertThat(QAlerts.RAISED).isEmpty();
-      assertThat(QAlerts.RESOLVED).isEmpty();
-      assertThat(QAlerts.HEARTBEATS).isEmpty();
+      AlertsInstanceMetaData.of(QContext.getQInstance()).withSink(null);
+      AlertsQBitAlertSink sink = new AlertsQBitAlertSink();
+      long failures = QAlerts.getProducerFailureCount();
+      sink.raise(null, "k", BackupAlertSink.Severity.INFO, "x", Map.of());
+      sink.resolve(null, "k");
+      sink.heartbeat(null, 1, 1);
+      assertThat(QAlerts.getProducerFailureCount()).isEqualTo(failures);
+      assertThat(RecordingSink.raised).isEmpty();
+      assertThat(RecordingSink.resolved).isEmpty();
+      assertThat(RecordingSink.heartbeats).isEmpty();
    }
 
 
 
    /*******************************************************************************
-    ** A broken or missing SPI never throws into the backup.
+    ** The same adapter follows the current instance and a sink installed later.
+    *******************************************************************************/
+   @Test
+   void testLateInstallationAndInstanceSwitch()
+   {
+      var original = QContext.getQInstance();
+      QContext.setQInstance(new QInstance());
+      AlertsQBitAlertSink sink = new AlertsQBitAlertSink();
+      assertThat(sink.isAlertsQBitInstalled()).isFalse();
+      sink.raise("backups.plan.missed", "k", BackupAlertSink.Severity.INFO, "x", Map.of());
+      assertThat(RecordingSink.raised).isEmpty();
+      sink.registerAlertTypes(QContext.getQInstance());
+      assertThat(sink.isAlertsQBitInstalled()).isFalse();
+      AlertsInstanceMetaData.of(QContext.getQInstance()).withSink(new QCodeReference(RecordingSink.class));
+      sink.raise("backups.plan.missed", "k", BackupAlertSink.Severity.INFO, "x", Map.of());
+      assertThat(RecordingSink.raised).hasSize(1);
+      assertThat(RecordingSink.raised.get(0).getSummary()).isNull();
+      QContext.setQInstance(original);
+      assertThat(sink.isAlertsQBitInstalled()).isTrue();
+   }
+
+
+
+   /*******************************************************************************
+    ** Sink and adapter failures never throw into the backup.
     *******************************************************************************/
    @Test
    void testFailuresAreSwallowed()
    {
-      AlertsQBitAlertSink missing = new AlertsQBitAlertSink("no.such.package");
-      missing.raise("t", "k", BackupAlertSink.Severity.INFO, "x", Map.of());
-      missing.resolve("t", "k");
-      missing.heartbeat("m", 1, 1);
-      assertThat(missing.registerAlertTypes(QContext.getQInstance())).isZero();
-
-      QAlerts.failWith = new IllegalStateException("alerts down");
-      AlertsQBitAlertSink broken = new AlertsQBitAlertSink(FAKE_API);
+      long failures = QAlerts.getProducerFailureCount();
+      RecordingSink.failWith = new IllegalStateException("alerts down");
+      AlertsQBitAlertSink broken = new AlertsQBitAlertSink();
       broken.raise("t", "k", BackupAlertSink.Severity.INFO, "x", Map.of());
       broken.resolve("t", "k");
       broken.heartbeat("m", 1, 1);
-      assertThat(QAlerts.RAISED).isEmpty();
+      assertThat(RecordingSink.raised).isEmpty();
+      assertThat(QAlerts.getProducerFailureCount()).isEqualTo(failures + 3);
+      broken.raise("t", "k", null, "bad severity", Map.of());
+      broken.raise("t", "k", null, "bad severity again", Map.of());
+      assertThat(broken.registerAlertTypes(null)).isZero();
    }
 
 
@@ -149,41 +185,41 @@ class AlertsQBitAlertSinkTest
     ** The backup alert types are declared with the Alerts qbit.
     *******************************************************************************/
    @Test
-   void testRegisterAlertTypes()
+   void testRegisterAlertTypes() throws Exception
    {
-      int added = new AlertsQBitAlertSink(FAKE_API).registerAlertTypes(QContext.getQInstance());
+      QInstance instance = new QInstance();
+      AlertsQBitAlertSink sink = new AlertsQBitAlertSink();
+      int added = sink.registerAlertTypes(instance);
+      var types = new ArrayList<>(AlertsInstanceMetaData.of(instance).getAlertTypes().values());
       assertThat(added).isEqualTo(BackupAlerts.alertTypes().size()).isEqualTo(9);
-      assertThat(QAlertTypeMetaData.ADDED).extracting(t -> t.name).containsExactly(
-         "backups.plan.missed", "backups.run.failed", "backups.run.missing_in_storage", "backups.files.missing", "backups.verify.failed",
-         "backups.verify.overdue", "backups.plan.owner_invalid", "backups.storage.debris", "backups.restore.completed");
-      assertThat(QAlertTypeMetaData.ADDED).allSatisfy(t ->
+      assertThat(types).extracting(t -> t.getName()).containsExactly(
+         "backups.plan.missed", "backups.run.failed", "backups.run.missing-in-storage", "backups.files.missing", "backups.verify.failed",
+         "backups.verify.overdue", "backups.plan.owner-invalid", "backups.storage.debris", "backups.restore.completed");
+      assertThat(types).allSatisfy(t ->
       {
-         assertThat(t.groupName).isEqualTo("Backups");
-         assertThat(t.howToFix).isNotBlank();
-         assertThat(t.label).isNotBlank();
+         assertThat(t.getGroupName()).isEqualTo("Backups");
+         assertThat(t.getHowToFix()).isNotBlank();
+         assertThat(t.getLabel()).isNotBlank();
       });
-      assertThat(QAlertTypeMetaData.ADDED.get(2).defaultSeverity.name()).isEqualTo("CRITICAL");
+      assertThat(types.get(2).getDefaultSeverity().name()).isEqualTo("CRITICAL");
+      assertThat(sink.registerAlertTypes(instance)).isZero();
+      new QInstanceValidator().validate(QContext.getQInstance());
    }
 
 
 
    /*******************************************************************************
-    ** Detection: the SPI is present or not by class name; the real SPI is not in
-    ** RC.4, so nothing is bound by default there.
+    ** Default binding preserves a host-provided backup sink.
     *******************************************************************************/
    @Test
    void testDetectionAndBinding()
    {
-      assertThat(AlertsQBitAlertSink.isPresent(FAKE_API)).isTrue();
-      assertThat(AlertsQBitAlertSink.isPresent("no.such.package")).isFalse();
-
-      boolean realSpiPresent = AlertsQBitAlertSink.isPresent(AlertsQBitAlertSink.DEFAULT_API_PACKAGE);
-      assertThat(AlertsQBitAlertSink.bindIfPresent()).isEqualTo(realSpiPresent);
-      if(realSpiPresent)
-      {
-         assertThat(BackupsRuntime.getAlertSink()).isInstanceOf(AlertsQBitAlertSink.class);
-         assertThat(AlertsQBitAlertSink.bindIfPresent()).as("an already bound sink is not replaced").isFalse();
-      }
+      assertThat(AlertsQBitAlertSink.bindIfAbsent()).isFalse();
+      assertThat(BackupsRuntime.getAlertSink()).isSameAs(VerifyTestSupport.sink);
+      BackupsRuntime.setAlertSink(null);
+      assertThat(AlertsQBitAlertSink.bindIfAbsent()).isTrue();
+      assertThat(BackupsRuntime.getAlertSink()).isInstanceOf(AlertsQBitAlertSink.class);
+      assertThat(AlertsQBitAlertSink.bindIfAbsent()).isFalse();
    }
 
 
@@ -194,22 +230,80 @@ class AlertsQBitAlertSinkTest
    @Test
    void testSlaAlertsThroughTheAdapter() throws Exception
    {
-      BackupsRuntime.setAlertSink(new AlertsQBitAlertSink(FAKE_API));
+      BackupsRuntime.setAlertSink(new AlertsQBitAlertSink());
       QRecord plan = VerifyTestSupport.plan(Map.of());
       VerifyTestSupport.backup(plan);
-      assertThat(QAlerts.HEARTBEATS).contains("backups.plan:nightly");
+      assertThat(RecordingSink.heartbeats).contains("backups.plan:nightly");
 
       VerifyTestSupport.clock.advance(Duration.ofHours(30));
       new SlaChecker().check(VerifyTestSupport.reload(plan));
-      assertThat(QAlerts.RAISED).anySatisfy(s ->
+      assertThat(RecordingSink.raised).anySatisfy(s ->
       {
-         assertThat(s.alertTypeName).isEqualTo("backups.plan.missed");
-         assertThat(s.dedupKey).isEqualTo("backups.plan.missed:nightly");
-         assertThat(s.severity.name()).isEqualTo("ERROR");
+         assertThat(s.getAlertTypeName()).isEqualTo("backups.plan.missed");
+         assertThat(s.getDedupKey()).isEqualTo("backups.plan.missed:nightly");
+         assertThat(s.getSeverity().name()).isEqualTo("ERROR");
       });
 
       VerifyTestSupport.backup(plan);
       new SlaChecker().check(VerifyTestSupport.reload(plan));
-      assertThat(QAlerts.RESOLVED).anyMatch(r -> r.startsWith("backups.plan.missed|backups.plan.missed:nightly|"));
+      assertThat(RecordingSink.resolved).anyMatch(r -> r.getAlertTypeName().equals("backups.plan.missed") && r.getDedupKey().equals("backups.plan.missed:nightly"));
+   }
+
+
+
+   /*******************************************************************************
+    ** Sink loaded by the real QCodeLoader through AlertsInstanceMetaData.
+    *******************************************************************************/
+   public static class RecordingSink implements AlertSinkInterface
+   {
+      static final List<AlertSignal> raised = new ArrayList<>();
+      static final List<AlertResolution> resolved = new ArrayList<>();
+      static final List<String> heartbeats = new ArrayList<>();
+      static RuntimeException failWith;
+
+
+
+      /*******************************************************************************
+       ** {@inheritDoc}
+       *******************************************************************************/
+      @Override
+      public void raise(AlertSignal signal)
+      {
+         if(failWith != null)
+         {
+            throw (failWith);
+         }
+         raised.add(signal);
+      }
+
+
+
+      /*******************************************************************************
+       ** {@inheritDoc}
+       *******************************************************************************/
+      @Override
+      public void resolve(AlertResolution resolution)
+      {
+         if(failWith != null)
+         {
+            throw (failWith);
+         }
+         resolved.add(resolution);
+      }
+
+
+
+      /*******************************************************************************
+       ** {@inheritDoc}
+       *******************************************************************************/
+      @Override
+      public void heartbeat(String heartbeatKey, Instant at)
+      {
+         if(failWith != null)
+         {
+            throw (failWith);
+         }
+         heartbeats.add(heartbeatKey);
+      }
    }
 }

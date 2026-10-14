@@ -306,7 +306,7 @@ class BackupPlanScheduleTest
       assertThat(catalog.where(BackupsTables.RUN, "backupPlanId", planId)).isEmpty();
       assertThat(BackupsTestUtils.BACKUPS.list("")).isEmpty();
       assertThat(catalog.get(BackupsTables.PLAN, planId).orElseThrow().getValueString("slaStatus")).isEqualTo("OWNER_INVALID");
-      assertThat(alerts.raised).containsExactly("backups.plan.owner_invalid|backups.plan.owner_invalid:nightly");
+      assertThat(alerts.raised).containsExactly("backups.plan.owner-invalid|backups.plan.owner-invalid:nightly");
 
       BackupScheduledRunProcess.setOwnerHasAdminCheck(null);
       Integer noOwner = insertPlan(Map.of("name", "Ownerless", "planKey", "ownerless", "isActive", true));
