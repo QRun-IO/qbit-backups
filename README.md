@@ -36,13 +36,14 @@ Follow the QQQ [adoption checklist](https://github.com/QRun-IO/qqq/blob/develop/
 ./mvnw verify
 ```
 
-Before RC.6 is released, verify against the locally installed core build only:
+Health checks require the unreleased core health SPI, installed locally as `4.1.0-SNAPSHOT`:
 
 ```bash
-./mvnw -B verify -Dqqq.snapshot.version=4.1.0-ARCHRC6-SNAPSHOT
+./mvnw -o verify -Dqqq.snapshot.version=4.1.0-SNAPSHOT -Denforcer.skipRules=requireReleaseDeps -Dtest='!ObjectStorageBackupStorageMinioTest'
 ```
 
-The POM stays on RC.6. See [the RC.6 migration notes](docs/RC6-MIGRATION.md) for
+This skips only the release-only dependency rule for the required local SNAPSHOT
+and excludes the Docker/MinIO tests to keep verification offline. The POM stays on RC.6. See [the RC.6 migration notes](docs/RC6-MIGRATION.md) for
 fingerprint compatibility, paging guarantees and restore permissions.
 
 Always use the Maven wrapper (Maven 3.9.11); Maven 3.10 cannot read the parent POM.
@@ -65,3 +66,23 @@ The backup SLA checker still owns expected intervals and grace periods.
 RC.5 requires hyphenated alert names: `backups.run.missing-in-storage` and
 `backups.plan.owner-invalid` replace the former underscore spellings, including
 their deduplication keys. Update host routing rules that used those spellings.
+
+## Health checks
+
+The producer registers these central checks under component `backups`, category `STORAGE`:
+
+| Name | Kind | Interval | Timeout |
+| --- | --- | --- | --- |
+| `backups.sla` | DEPENDENCY | 900s (15 minutes) | 5000ms |
+| `backups.destination.<planId>` | DEPENDENCY | 86400s (24 hours) | 30000ms |
+
+The SLA check reads persisted `slaStatus`: critical active plans that are LATE,
+FAILING or MISSING_IN_STORAGE yield DOWN; non-critical failures yield DEGRADED.
+Only UNVERIFIED/UNKNOWN plans yield UNKNOWN; no active plans yield UP. Details
+contain counts per SLA status. The scheduled `backupCheckSla` still computes SLA state.
+
+Destination checks are supplied for active plans and reuse `DestinationProbe` in
+read-only list/head mode, including on unlocked buckets. They never write, delete,
+or resolve prune credentials. The Test destination action retains its write tests.
+Storage calls are bounded by the central runner, with deadline checks between calls.
+Override intervals in `health_check` and disable checks through `health_check.enabled`.
