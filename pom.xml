@@ -18,6 +18,8 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
 
    <properties>
+      <qbit.guardrails.enforce>true</qbit.guardrails.enforce>
+      <qbit.guardrails.strictUiApiRoutes>true</qbit.guardrails.strictUiApiRoutes>
       <revision>0.1.0-SNAPSHOT</revision>
       <maven.compiler.source>21</maven.compiler.source>
       <maven.compiler.target>21</maven.compiler.target>
@@ -27,7 +29,7 @@
    <parent>
       <groupId>com.kingsrook</groupId>
       <artifactId>qbit-build-parent</artifactId>
-      <version>2.0.0</version>
+      <version>2.1.0</version>
    </parent>
 
    <groupId>com.kingsrook.qbits</groupId>
