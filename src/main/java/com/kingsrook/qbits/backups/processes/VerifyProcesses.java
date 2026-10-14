@@ -30,6 +30,9 @@ import com.kingsrook.qbits.backups.verify.VerificationOutcome;
 import com.kingsrook.qqq.backend.core.actions.processes.BackendStep;
 import com.kingsrook.qqq.backend.core.context.QContext;
 import com.kingsrook.qqq.backend.core.exceptions.QException;
+import com.kingsrook.qqq.backend.core.jobs.plans.JobChunkScope;
+import com.kingsrook.qqq.backend.core.jobs.progress.JobPhase;
+import com.kingsrook.qqq.backend.core.jobs.progress.JobProgress;
 import com.kingsrook.qqq.backend.core.model.actions.processes.ProcessSummaryLine;
 import com.kingsrook.qqq.backend.core.model.actions.processes.ProcessSummaryLineInterface;
 import com.kingsrook.qqq.backend.core.model.actions.processes.RunBackendStepInput;
@@ -85,7 +88,7 @@ public final class VerifyProcesses
    {
       List<QProcessMetaData> processes = new ArrayList<>();
       processes.add(BackupsProcesses.permission(BackupsProcesses.etl(VERIFY, "Verify backup", BackupsTables.RUN, VerifyTransform.class, VerifyLoad.class,
-         "This checks that the backup's objects are all in storage, then reads every byte back, decrypts and decodes it, and compares counts and hashes with the manifest. Nothing is changed in the backup."),
+         "This checks that the backup's objects are all in storage, then reads every byte back, decrypts and decodes it, and compares counts and hashes with the manifest. Nothing is changed in the backup.").withSupplementalMetaData(BackupsProcesses.durability()),
          BackupsPermissions.RUN));
       processes.add(checkSlaProcess(BackupsRuntime.getConfig()));
       return (processes);
@@ -220,12 +223,31 @@ public final class VerifyProcesses
       @Override
       public void runOnePage(RunBackendStepInput input, RunBackendStepOutput output) throws QException
       {
+         JobProgress progress = JobProgress.of(input);
+         progress.phases(JobPhase.of("verify", "Verify", 100)).phase("verify").total(input.getRecords().size(), "backups").done(0);
+         int done = 0;
          String level = input.getValueString(FIELD_VERIFY_LEVEL) == null ? BackupVerifier.CONTENT : input.getValueString(FIELD_VERIFY_LEVEL);
          String user  = QContext.getQSession() == null || QContext.getQSession().getUser() == null ? "system" : QContext.getQSession().getUser().getIdReference();
          for(QRecord run : input.getRecords())
          {
+            JobChunkScope.checkBetweenPages();
+            progress.message("Verifying backup " + run.getValueInteger("id"));
             List<VerificationOutcome> outcomes = new BackupVerifier().verifyThrough(run.getValueInteger("id"), level, "MANUAL", user);
             VerificationOutcome       last     = outcomes.get(outcomes.size() - 1);
+            for(VerificationOutcome outcome : outcomes)
+            {
+               progress.info("Verification " + outcome.level() + ": " + outcome.status());
+            }
+            if(!last.passed())
+            {
+               progress.getSnapshot().getPhases().getFirst().setStatus(JobPhase.Status.FAILED);
+               progress.error("Backup verification " + last.status());
+               if(JobChunkScope.current().isPresent())
+               {
+                  throw (new QException("Backup verification " + last.status()));
+               }
+            }
+            progress.done(++done);
             switch(last.status())
             {
                case "PASSED" -> passed.incrementCountAndAddPrimaryKey(run.getValue("id"));
@@ -248,6 +270,8 @@ public final class VerifyProcesses
             }
             output.getRecords().add(run);
          }
+         progress.getSnapshot().getPhases().getFirst().setStatus(failed.getCount() > 0 || errored.getCount() > 0 ? JobPhase.Status.FAILED : JobPhase.Status.DONE);
+         progress.flush();
       }
 
 

@@ -46,6 +46,7 @@ import com.kingsrook.qqq.backend.core.actions.tables.InsertAction;
 import com.kingsrook.qqq.backend.core.actions.tables.QueryAction;
 import com.kingsrook.qqq.backend.core.context.QContext;
 import com.kingsrook.qqq.backend.core.exceptions.QException;
+import com.kingsrook.qqq.backend.core.jobs.plans.JobChunkScope;
 import com.kingsrook.qqq.backend.core.model.actions.tables.insert.InsertInput;
 import com.kingsrook.qqq.backend.core.model.actions.tables.query.QCriteriaOperator;
 import com.kingsrook.qqq.backend.core.model.actions.tables.query.QFilterCriteria;
@@ -200,6 +201,7 @@ public class RestorePass
 
       for(String name : order)
       {
+         JobChunkScope.checkBetweenPages();
          restoreTable(name);
       }
       retryPass();
@@ -566,6 +568,7 @@ public class RestorePass
     *******************************************************************************/
    private void processPage(TableContext c, List<QRecord> page) throws QException
    {
+      JobChunkScope.checkBetweenPages();
       RestoreOutcome.TableOutcome o = c.outcome;
       o.addRows(page.size());
 

@@ -10,7 +10,7 @@
 ## Requirements
 
 - Java 21.
-- QQQ 4.1 (targets `4.1.0-RC.6`, not yet released).
+- QQQ 4.1 (targets `4.1.0-RC.8`, not yet released).
 
 ## Install
 
@@ -36,16 +36,39 @@ Follow the QQQ [adoption checklist](https://github.com/QRun-IO/qqq/blob/develop/
 ./mvnw verify
 ```
 
-Before RC.6 is released, verify against the locally installed core build only:
+Before RC.8 is released, verify against the locally installed job-progress core build:
 
 ```bash
-./mvnw -B verify -Dqqq.snapshot.version=4.1.0-ARCHRC6-SNAPSHOT
+./mvnw -o -B verify -Dqqq.snapshot.version=4.1.0-SNAPSHOT -Denforcer.skipRules=requireReleaseDeps
 ```
 
-The POM stays on RC.6. See [the RC.6 migration notes](docs/RC6-MIGRATION.md) for
+The POM defaults to RC.8 via `qqq.snapshot.version`; CI must use the released RC.8
+that contains job progress. The local command skips only the parent rule rejecting
+snapshot dependencies, and uses offline mode to preserve the locally installed core.
+On Windows use `mvnw.cmd` with the same arguments. See [the RC.6 migration notes](docs/RC6-MIGRATION.md) for
 fingerprint compatibility, paging guarantees and restore permissions.
 
 Always use the Maven wrapper (Maven 3.9.11); Maven 3.10 cannot read the parent POM.
+
+## Durable jobs and progress
+
+Run backup now, Resume, scheduled backups, both Restore actions, and Verify backup
+are always durable jobs. Hosts must configure QQQ durable jobs and its worker.
+Review remains a preview; execution runs in the background and reports through
+the job page and jobs tray.
+
+Backups report Resolve scope, Back up tables, Copy media files, and Write catalog
+and manifest. Separate verification jobs report a single Verify phase.
+The job includes table/file counts, stored bytes, per-table
+rows and duration, artifact names, warnings and failures. Logs exclude row values,
+source file keys, storage credentials and endpoints. Provider errors use controlled
+failure messages; detailed exceptions stay in server diagnostics.
+
+These processes use `NONE` idempotency: a worker interruption requires review before
+retry because object writes and catalog updates are not atomic. Explicitly retrying
+a backup job reuses its run and resumes completed parts; it does not create another
+backup. Snapshot runs that cannot resume must be started as a new backup. See
+[the progress and retry contract](docs/DESIGN.md#job-progress-implementation) for limits and cancellation.
 
 ## License
 

@@ -20,6 +20,7 @@ package com.kingsrook.qbits.backups.run;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.zip.GZIPInputStream;
@@ -28,11 +29,18 @@ import com.kingsrook.qbits.backups.manifest.BackupManifest;
 import com.kingsrook.qbits.backups.model.BackupsTables;
 import com.kingsrook.qbits.backups.scope.PlanSettings;
 import com.kingsrook.qbits.backups.scope.ScopeResolver;
+import com.kingsrook.qqq.backend.core.actions.async.AsyncJobCallback;
 import com.kingsrook.qqq.backend.core.context.QContext;
+import com.kingsrook.qqq.backend.core.jobs.plans.JobChunkScope;
+import com.kingsrook.qqq.backend.core.jobs.plans.JobInterruptedException;
+import com.kingsrook.qqq.backend.core.jobs.progress.JobLogLevel;
+import com.kingsrook.qqq.backend.core.jobs.progress.JobPhase;
+import com.kingsrook.qqq.backend.core.jobs.progress.JobProgress;
 import com.kingsrook.qqq.backend.core.model.data.QRecord;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 
 /*******************************************************************************
@@ -187,7 +195,9 @@ class BackupEngineTest
       assertThat(gunzip(BackupsTestUtils.BACKUPS.getBytes(refOnly.getRunPrefix() + "files/index-00001.jsonl.gz"))).contains("REFERENCE_ONLY");
 
       BackupsTestUtils.MEDIA.removeIgnoringLock("media/photo-1.jpg");
-      BackupRunResult missing = run(new BackupCatalog().where(BackupsTables.PLAN, "planKey", "nightly").get(0));
+      RecordingProgress progress = new RecordingProgress();
+      BackupRunResult missing = new BackupEngine().execute(BackupRunFactory.forPlan(new BackupCatalog().where(BackupsTables.PLAN, "planKey", "nightly").get(0), "MANUAL").withProgress(progress));
+      assertThat(progress.logs).anyMatch(l -> l.startsWith("WARN:") && l.contains("missing"));
       assertThat(missing.getFilesMissing()).isGreaterThan(0);
       assertThat(missing.getWarnings()).anyMatch(w -> w.contains("missing"));
       assertThat(missing.getStatus()).isEqualTo("SUCCEEDED_WITH_WARNINGS");
@@ -208,7 +218,7 @@ class BackupEngineTest
          BackupRunResult result = run(plan(Map.of()));
          assertThat(result.getStatus()).isEqualTo("FAILED");
          assertThat(result.isUsable()).isFalse();
-         assertThat(result.getErrorMessage()).contains("injected write failure");
+         assertThat(result.getErrorMessage()).contains("Backup failed");
          assertThat(BackupsTestUtils.BACKUPS.list(result.getRunPrefix() + "manifest.json")).isEmpty();
          assertThat(new BackupCatalog().get(BackupsTables.RUN, result.getRunId()).orElseThrow().getValueString("status")).isEqualTo("FAILED");
       }
@@ -281,4 +291,215 @@ class BackupEngineTest
       assertThat(scope.tables()).isEmpty();
       assertThat(scope.excluded()).extracting(ScopeResolver.ExcludedTable::reason).containsExactly("BACKUPS");
    }
+
+
+   /*******************************************************************************
+    ** A real plan reports work in order, relative artifact names and no row data.
+    *******************************************************************************/
+   @Test
+   void testJobProgress() throws Exception
+   {
+      RecordingProgress progress = new RecordingProgress();
+      BackupRunResult result = new BackupRunCoordinator().runPlan(plan(Map.of("prefix", "private-prefix")), "MANUAL", progress, null);
+      assertThat(result.isUsable()).isTrue();
+      assertThat(progress.phases).containsExactly("prepare", "tables", "media", "upload");
+      assertThat(progress.getSnapshot().getPhases()).extracting(JobPhase::getWeight).containsExactly(2.0, 75.0, 18.0, 5.0);
+      assertThat(progress.getSnapshot().getPhases()).extracting(JobPhase::getStatus)
+         .containsExactly(JobPhase.Status.DONE, JobPhase.Status.DONE, JobPhase.Status.DONE, JobPhase.Status.DONE);
+      assertThat(progress.counts).contains("tables:0/2 tables", "tables:1/2 tables", "tables:2/2 tables", "media:0/4 files", "media:4/4 files");
+      assertThat(progress.bytes).isSorted();
+      assertThat(progress.bytes.getLast()).isGreaterThan(0);
+      assertThat(progress.getSnapshot().getBytesTotal()).isNull();
+      assertThat(progress.messages).contains("Backing up author (1 of 2)", "Backing up blogPost (2 of 2)");
+      assertThat(progress.logs).anyMatch(l -> l.matches("INFO:author: 3 rows, .* MB in .* s"));
+      assertThat(progress.logs).anyMatch(l -> l.matches("INFO:blogPost: 7 rows, .* MB in .* s"));
+      assertThat(progress.logs).contains("INFO:Media: 4 files, 3 copied, 1 already stored, 0 missing", "INFO:Wrote checksums.sha256", "INFO:Wrote manifest.json", "INFO:Wrote files/index-00001.jsonl.gz");
+      assertThat(progress.logs).anyMatch(l -> l.startsWith("INFO:Wrote tables/blogPost/"));
+      for(String warning : result.getWarnings())
+      {
+         assertThat(progress.logs).contains("WARN:" + warning);
+      }
+      assertThat(String.join("\n", progress.logs)).doesNotContain("private-prefix", "do-not-leak", "Body of", "media/photo-");
+   }
+
+
+
+   /*******************************************************************************
+    ** Repeated backups report deduplicated media and complete all four phases.
+    *******************************************************************************/
+   @Test
+   void testProgressWithDeduplication() throws Exception
+   {
+      QRecord plan = plan(Map.of());
+      run(plan);
+      RecordingProgress progress = new RecordingProgress();
+      BackupRunResult result = new BackupEngine().execute(BackupRunFactory.forPlan(plan, "MANUAL").withProgress(progress));
+      assertThat(result.isUsable()).isTrue();
+      assertThat(progress.phases).containsExactly("prepare", "tables", "media", "upload");
+      assertThat(progress.getSnapshot().getPhases()).allMatch(p -> p.getStatus() == JobPhase.Status.DONE);
+      assertThat(progress.logs).contains("INFO:Media: 4 files, 0 copied, 4 already stored, 0 missing");
+   }
+
+
+
+   /*******************************************************************************
+    ** Arbitrary provider failures must not put credentials or row values in jobs.
+    *******************************************************************************/
+   @Test
+   void testProgressFailureDoesNotLeakProviderText() throws Exception
+   {
+      RecordingProgress progress = new RecordingProgress();
+      BackupRunRequest request = BackupRunFactory.forPlan(plan(Map.of()), "MANUAL").withProgress(progress)
+         .withReader((table, filter, start, size, transaction, sink) ->
+         {
+            throw (new com.kingsrook.qqq.backend.core.exceptions.QException("https://storage-user:storage-password@host/?secret=storage-secret accessKey=storage-access row=private-row"));
+         });
+      BackupRunResult result = new BackupEngine().execute(request);
+      assertThat(result.getStatus()).isEqualTo("FAILED");
+      assertThat(progress.logs).contains("ERROR:" + result.getErrorMessage());
+      assertThat(progress.getSnapshot().getPhases()).anyMatch(p -> p.getStatus() == JobPhase.Status.FAILED);
+      assertThat(String.join("\n", progress.logs) + result.getErrorMessage()).doesNotContain("storage-user", "storage-password", "storage-secret", "storage-access", "private-row", "https://");
+   }
+
+
+
+   /*******************************************************************************
+    ** The job page's cancel check must escape the engine to the durable worker.
+    *******************************************************************************/
+   @Test
+   void testJobCancellationBetweenPages() throws Exception
+   {
+      BackupRunRequest request = BackupRunFactory.forPlan(plan(Map.of("pageSize", 1)), "MANUAL");
+      int[] checks = { 0 };
+      try(JobChunkScope ignored = JobChunkScope.open(null, () ->
+      {
+         if(++checks[0] == 3)
+         {
+            throw (new JobInterruptedException(JobInterruptedException.Reason.CANCEL));
+         }
+      }))
+      {
+         assertThatThrownBy(() -> new BackupEngine().execute(request)).isInstanceOf(JobInterruptedException.class);
+      }
+      assertThat(new BackupCatalog().where(BackupsTables.RUN, "status", "CANCELLED")).hasSize(1);
+   }
+
+
+
+   /*******************************************************************************
+    ** Storage providers can include endpoint user-info and raw keys in exceptions.
+    *******************************************************************************/
+   @Test
+   void testStorageFailureDoesNotLeakCredentials() throws Exception
+   {
+      RecordingProgress progress = new RecordingProgress();
+      var storage = new com.kingsrook.qbits.backups.storage.InMemoryBackupStorage()
+      {
+         /*******************************************************************************
+          ** Deliberately unsafe provider diagnostics must stay out of job output.
+          *******************************************************************************/
+         @Override
+         public java.io.OutputStream openWrite(String key, com.kingsrook.qbits.backups.storage.WriteOptions options)
+         {
+            throw (new com.kingsrook.qbits.backups.storage.BackupStorageException(com.kingsrook.qbits.backups.storage.BackupStorageException.Reason.ACCESS_DENIED,
+               "https://endpoint-user:endpoint-password@storage accessKey=access-secret secretKey=secret-secret"));
+         }
+      };
+      BackupRunResult result = new BackupEngine().execute(BackupRunFactory.forPlan(plan(Map.of()), "MANUAL").withProgress(progress).withStorage(storage));
+      assertThat(result.getStatus()).isEqualTo("FAILED");
+      assertThat(progress.logs).contains("ERROR:" + result.getErrorMessage());
+      assertThat(String.join("\n", progress.logs) + result.getErrorMessage()).doesNotContain("endpoint-user", "endpoint-password", "access-secret", "secret-secret", "https://");
+   }
+
+
+
+   /*******************************************************************************
+    ** Failed backups must fail the durable chunk, not just add a summary line.
+    *******************************************************************************/
+   @Test
+   void testDurableLoadPropagatesFailure() throws Exception
+   {
+      var input = new com.kingsrook.qqq.backend.core.model.actions.processes.RunBackendStepInput();
+      input.setRecords(List.of(plan(Map.of())));
+      BackupsTestUtils.BACKUPS.withFailWritesFor(key -> key.contains("/tables/"));
+      try(JobChunkScope scope = JobChunkScope.open(null).withProgress(new RecordingProgress()))
+      {
+         assertThatThrownBy(() -> new com.kingsrook.qbits.backups.processes.BackupsProcesses.RunPlanLoad().runOnePage(input,
+            new com.kingsrook.qqq.backend.core.model.actions.processes.RunBackendStepOutput()))
+            .isInstanceOf(com.kingsrook.qqq.backend.core.exceptions.QException.class).hasMessageContaining("Backup failed");
+      }
+   }
+
+
+
+   /*******************************************************************************
+    ** Record values at call time: JobProgress's live snapshot is mutable.
+    *******************************************************************************/
+   static class RecordingProgress extends JobProgress
+   {
+      final List<String> phases = new ArrayList<>();
+      final List<String> counts = new ArrayList<>();
+      final List<Long> bytes = new ArrayList<>();
+      final List<String> logs = new ArrayList<>();
+      final List<String> messages = new ArrayList<>();
+
+      /*******************************************************************************
+       ** Use the core's safe standalone destination.
+       *******************************************************************************/
+      RecordingProgress()
+      {
+         super((AsyncJobCallback) null);
+      }
+
+      /*******************************************************************************
+       ** Record transitions.
+       *******************************************************************************/
+      @Override
+      public JobProgress phase(String name)
+      {
+         phases.add(name);
+         return (super.phase(name));
+      }
+
+      /*******************************************************************************
+       ** Record counts and their units.
+       *******************************************************************************/
+      @Override
+      public JobProgress done(long done)
+      {
+         counts.add(getSnapshot().getCurrentPhase() + ":" + done + "/" + getSnapshot().getTotal() + " " + getSnapshot().getUnitLabel());
+         return (super.done(done));
+      }
+
+      /*******************************************************************************
+       ** Record byte counts.
+       *******************************************************************************/
+      @Override
+      public JobProgress bytesDone(long done)
+      {
+         bytes.add(done);
+         return (super.bytesDone(done));
+      }
+
+      /*******************************************************************************
+       ** Capture text before core redaction as well as exercising core publication.
+       *******************************************************************************/
+      @Override
+      public JobProgress log(JobLogLevel level, String message)
+      {
+         logs.add(level + ":" + message);
+         return (super.log(level, message));
+      }
+
+      /*******************************************************************************
+       ** Record live messages.
+       *******************************************************************************/
+      @Override
+      public JobProgress message(String message)
+      {
+         messages.add(message);
+         return (super.message(message));
+      }
+   }
+
 }
