@@ -17,6 +17,14 @@
 package com.kingsrook.qbits.backups;
 
 
+import com.kingsrook.qbits.backups.health.BackupsDestinationHealthChecks;
+import com.kingsrook.qbits.backups.health.BackupsSlaHealthCheck;
+import com.kingsrook.qqq.backend.core.health.HealthCategory;
+import com.kingsrook.qqq.backend.core.health.HealthCheckKind;
+import com.kingsrook.qqq.backend.core.health.HealthCheckMetaData;
+import com.kingsrook.qqq.backend.core.health.HealthCheckSupplierMetaData;
+import com.kingsrook.qqq.backend.core.health.HealthChecksMetaData;
+import com.kingsrook.qqq.backend.core.model.metadata.code.QCodeReference;
 import com.kingsrook.qqq.backend.core.model.metadata.qbits.QBitMetaData;
 import com.kingsrook.qqq.backend.core.model.metadata.qbits.QBitMetaDataProducer;
 
@@ -160,6 +168,13 @@ public class BackupsQBitProducer implements QBitMetaDataProducer<BackupsQBitConf
       com.kingsrook.qqq.backend.core.model.metadata.layout.QAppMetaData app = com.kingsrook.qbits.backups.app.BackupsApp.app(qBitConfig, tables);
       output.add(app);
       output.addSelfToInstance(qInstance);
+
+      HealthChecksMetaData.ofOrWithNew(qInstance)
+         .withCheck(new HealthCheckMetaData().withName(BackupsSlaHealthCheck.NAME).withLabel("Backup SLA")
+            .withComponent("backups").withKind(HealthCheckKind.DEPENDENCY).withCategory(HealthCategory.STORAGE)
+            .withIntervalSeconds(900).withCheck(new QCodeReference(BackupsSlaHealthCheck.class)))
+         .withSupplier(new HealthCheckSupplierMetaData().withNamePrefix(BackupsDestinationHealthChecks.PREFIX)
+            .withComponent("backups").withSupplier(new QCodeReference(BackupsDestinationHealthChecks.class)));
 
       // A parent app only lists the apps that are its children, so attach ourselves (for example Admin, then Backups).
       com.kingsrook.qqq.backend.core.model.metadata.layout.QAppMetaData parent = qBitConfig.getParentAppName() == null ? null : qInstance.getApp(qBitConfig.getParentAppName());
