@@ -43,6 +43,11 @@ Follow the QQQ [adoption checklist](https://github.com/QRun-IO/qqq/blob/develop/
 See [the RC.6 migration notes](docs/RC6-MIGRATION.md) for fingerprint compatibility,
 paging guarantees and restore permissions.
 
+Health checks use the core health API released in QQQ `4.1.0-RC.8`.
+The producer registers `backups.sla` and a read-only destination check for each
+active plan (`backups.destination.<planId>`). With dependencies cached locally,
+run `./mvnw -o verify`; no enforcer skip flags are required.
+
 ## In-app help
 
 The producer registers [help/qbit-backups.yaml](src/main/resources/help/qbit-backups.yaml)
@@ -95,3 +100,23 @@ The backup SLA checker still owns expected intervals and grace periods.
 RC.5 requires hyphenated alert names: `backups.run.missing-in-storage` and
 `backups.plan.owner-invalid` replace the former underscore spellings, including
 their deduplication keys. Update host routing rules that used those spellings.
+
+## Health checks
+
+The producer registers these central checks under component `backups`, category `STORAGE`:
+
+| Name | Kind | Interval | Timeout |
+| --- | --- | --- | --- |
+| `backups.sla` | DEPENDENCY | 900s (15 minutes) | 5000ms |
+| `backups.destination.<planId>` | DEPENDENCY | 86400s (24 hours) | 30000ms |
+
+The SLA check reads persisted `slaStatus`: critical active plans that are LATE,
+FAILING or MISSING_IN_STORAGE yield DOWN; non-critical failures yield DEGRADED.
+Only UNVERIFIED/UNKNOWN plans yield UNKNOWN; no active plans yield UP. Details
+contain counts per SLA status. The scheduled `backupCheckSla` still computes SLA state.
+
+Destination checks are supplied for active plans and reuse `DestinationProbe` in
+read-only list/head mode, including on unlocked buckets. They never write, delete,
+or resolve prune credentials. The Test destination action retains its write tests.
+Storage calls are bounded by the central runner, with deadline checks between calls.
+Override intervals in `health_check` and disable checks through `health_check.enabled`.

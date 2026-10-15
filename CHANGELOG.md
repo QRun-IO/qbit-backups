@@ -5,6 +5,7 @@ All notable changes to this project are documented here. The format follows Keep
 ## [0.1.0] - Unreleased
 
 ### Added
+- Central `backups.sla` and per-active-plan `backups.destination.<planId>` health checks, with bounded read-only destination diagnostics and secret-free status details.
 - Always-durable backup, resume, scheduled backup, restore and verify processes with conservative `NONE` idempotency and stable backup identities on explicit job retry.
 - Weighted backup phases, table/file counts, stored bytes, safe per-table/artifact logs, warnings, failures and resume notices through QQQ `JobProgress`.
 - Cooperative job cancellation during backup pages, media copying, restore pages and verification scans; local media-reference spooling keeps phase separation from growing heap usage across tables.
@@ -26,3 +27,6 @@ All notable changes to this project are documented here. The format follows Keep
 - New manifests identify `qqq-table-schema-v1` and carry core schema descriptors; restore and content verification still accept pre-RC.6 manifests with the original fingerprint algorithm.
 - Preserve primary-key ordering, exclusive resume cursors, bounded pages and caller-owned transactions; reject non-orderable primary keys and scope filters with skip/limit.
 - Require the core `backups.restore` permission during Review when using a core restore writer, including anonymous-mode hosts; preserve supplied timestamps through `RestoreWriteFlag`.
+
+### Removed
+- The legacy `BackupsHealthIndicator` and its optional `qqq-middleware-health` dependency; central health registration replaces manual indicator configuration.
