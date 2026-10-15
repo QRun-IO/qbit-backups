@@ -16,6 +16,9 @@ All notable changes to this project are documented here. The format follows Keep
 - Repository scaffold: `BackupsQBitConfig` and `BackupsQBitProducer` (table prefix `backups_`, permissions `backups.*`), build, CI and repository standard files.
 
 ### Changed
+- Multi-node deployments: the cached Prometheus text (`BackupsMetrics`) is registered with QQQ `ClusterCaches` as `qbit-backups.metrics` and cleared on every node when a run finishes or a plan is inserted, updated or deleted; the 60 s TTL remains the safety net. `SlaChecker`'s manifest-head and bucket-audit throttles and `BackupsRuntime`'s process-permission map are registered as node-local, with reasons. `BackupsClusterCachesTest` audits the package for unregistered static caches and covers a remote invalidation.
+- Builds against QQQ `4.1.0-SNAPSHOT` (`qqq.snapshot.version`) for `ClusterCaches` until the next QQQ RC ships; a release must pin that RC.
+- Read the QBit metadata version from the Maven artifact version so release builds report their released version.
 - Target QQQ `4.1.0-RC.8` (job progress).
 - Persist controlled backup failure messages instead of untrusted provider exception text.
 - Pin QQQ to released 4.1.0-RC.7 and replace the temporary help loader with core HelpBundles registration.

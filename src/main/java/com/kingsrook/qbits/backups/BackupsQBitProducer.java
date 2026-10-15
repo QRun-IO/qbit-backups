@@ -17,6 +17,9 @@
 package com.kingsrook.qbits.backups;
 
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.Properties;
 import com.kingsrook.qbits.backups.health.BackupsDestinationHealthChecks;
 import com.kingsrook.qbits.backups.health.BackupsSlaHealthCheck;
 import com.kingsrook.qqq.backend.core.health.HealthCategory;
@@ -38,10 +41,38 @@ public class BackupsQBitProducer implements QBitMetaDataProducer<BackupsQBitConf
 {
    public static final String GROUP_ID    = "com.kingsrook.qbits";
    public static final String ARTIFACT_ID = "qbit-backups";
-   public static final String VERSION     = "0.1.0";
+   public static final String VERSION     = loadVersion();
 
    private BackupsQBitConfig qBitConfig;
    private String namespace;
+
+
+
+   /*******************************************************************************
+    ** Read the artifact version from the Maven-filtered resource.
+    *******************************************************************************/
+   private static String loadVersion()
+   {
+      try(InputStream inputStream = BackupsQBitProducer.class.getClassLoader().getResourceAsStream("qbit-backups.properties"))
+      {
+         if(inputStream == null)
+         {
+            throw (new IllegalStateException("Missing qbit-backups.properties; build with Maven to generate the artifact version"));
+         }
+         Properties properties = new Properties();
+         properties.load(inputStream);
+         String version = properties.getProperty("version");
+         if(version == null || version.isBlank() || version.contains("${"))
+         {
+            throw (new IllegalStateException("Missing or unfiltered version in qbit-backups.properties; build with Maven"));
+         }
+         return (version);
+      }
+      catch(IOException e)
+      {
+         throw (new IllegalStateException("Could not read artifact version from qbit-backups.properties", e));
+      }
+   }
 
 
 

@@ -25,6 +25,7 @@ import com.kingsrook.qbits.backups.alerts.BackupAlertSink;
 import com.kingsrook.qbits.backups.alerts.NoOpBackupAlertSink;
 import com.kingsrook.qbits.backups.storage.BackupStorage;
 import com.kingsrook.qbits.backups.storage.BackupStorageException;
+import com.kingsrook.qqq.backend.core.cluster.ClusterCaches;
 
 
 /*******************************************************************************
@@ -34,7 +35,8 @@ import com.kingsrook.qbits.backups.storage.BackupStorageException;
  *******************************************************************************/
 public final class BackupsRuntime
 {
-   private static final Map<String, String> PROCESS_PERMISSIONS = new ConcurrentHashMap<>();
+   private static final Map<String, String> PROCESS_PERMISSIONS = ClusterCaches.nodeLocal(new ConcurrentHashMap<>(),
+      "built from the qbit config at startup, the same on every node");
 
    private static volatile BackupsQBitConfig config;
    private static volatile Clock             clock           = Clock.systemUTC();

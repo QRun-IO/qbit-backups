@@ -35,6 +35,7 @@ import com.kingsrook.qbits.backups.model.BackupsTables;
 import com.kingsrook.qbits.backups.run.BackupCatalog;
 import com.kingsrook.qbits.backups.storage.BackupStorage;
 import com.kingsrook.qbits.backups.storage.StoredObjectInfo;
+import com.kingsrook.qqq.backend.core.cluster.ClusterCaches;
 import com.kingsrook.qqq.backend.core.exceptions.QException;
 import com.kingsrook.qqq.backend.core.logging.QLogger;
 import com.kingsrook.qqq.backend.core.model.actions.tables.query.QCriteriaOperator;
@@ -95,8 +96,11 @@ public class SlaChecker
    private static final Set<String> FAILED_STATUSES   = Set.of("FAILED", "TIMED_OUT", "ABANDONED");
    private static final Set<String> FINISHED_STATUSES = Set.of("SUCCEEDED", "SUCCEEDED_WITH_WARNINGS", "FAILED", "TIMED_OUT", "ABANDONED");
 
-   private static final Map<String, Instant> MANIFEST_OK_AT = new ConcurrentHashMap<>();
-   private static final Map<String, Instant> LAST_AUDIT_AT  = new ConcurrentHashMap<>();
+   private static final Map<String, Instant> MANIFEST_OK_AT = ClusterCaches.nodeLocal(new ConcurrentHashMap<>(),
+      "throttles this node's storage HEAD of a manifest to once per MANIFEST_CACHE; it caches storage state, not editable data, "
+         + "and a pruned run is skipped by its prunedDate, so each node is as fresh as a single node");
+   private static final Map<String, Instant> LAST_AUDIT_AT  = ClusterCaches.nodeLocal(new ConcurrentHashMap<>(),
+      "throttles this node's bucket audit to once per BUCKET_AUDIT_INTERVAL; another node auditing again is only repeated work");
 
    private final BackupCatalog catalog = new BackupCatalog();
 

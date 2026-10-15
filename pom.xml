@@ -124,11 +124,33 @@
    </dependencies>
 
    <build>
+      <resources>
+         <!-- help bundles carry the artifact version (QQQ help bundle provenance) -->
+         <resource>
+            <directory>src/main/resources</directory>
+            <filtering>true</filtering>
+            <includes>
+               <include>help/*.yaml</include>
+               <include>qbit-backups.properties</include>
+            </includes>
+         </resource>
+         <resource>
+            <directory>src/main/resources</directory>
+            <filtering>false</filtering>
+            <excludes>
+               <exclude>help/*.yaml</exclude>
+               <exclude>qbit-backups.properties</exclude>
+            </excludes>
+         </resource>
+      </resources>
       <plugins>
          <plugin>
             <groupId>org.apache.maven.plugins</groupId>
             <artifactId>maven-surefire-plugin</artifactId>
             <configuration>
+               <systemPropertyVariables combine.children="append">
+                  <qbit.artifactVersion>${project.version}</qbit.artifactVersion>
+               </systemPropertyVariables>
                <!-- the MinIO test container default credentials, resolved through ${env.X} refs like production -->
                <environmentVariables>
                   <STORAGE_TEST_ACCESS_KEY>minioadmin</STORAGE_TEST_ACCESS_KEY>
@@ -194,7 +216,7 @@
             <activeByDefault>true</activeByDefault>
          </activation>
          <properties>
-            <qqq.snapshot.version>4.1.0-RC.8</qqq.snapshot.version>
+            <qqq.snapshot.version>4.1.0-RC.14</qqq.snapshot.version>
          </properties>
          <dependencyManagement>
             <dependencies>
