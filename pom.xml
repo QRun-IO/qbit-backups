@@ -216,7 +216,7 @@
             <activeByDefault>true</activeByDefault>
          </activation>
          <properties>
-            <qqq.snapshot.version>4.1.0-SNAPSHOT</qqq.snapshot.version>
+            <qqq.snapshot.version>4.1.0-RC.14</qqq.snapshot.version>
          </properties>
          <dependencyManagement>
             <dependencies>
