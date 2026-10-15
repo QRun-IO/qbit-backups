@@ -47,6 +47,7 @@ import com.kingsrook.qbits.backups.files.FileReference;
 import com.kingsrook.qbits.backups.files.FileReferenceProvider;
 import com.kingsrook.qbits.backups.manifest.BackupManifest;
 import com.kingsrook.qbits.backups.manifest.TableFingerprints;
+import com.kingsrook.qbits.backups.metrics.BackupsMetrics;
 import com.kingsrook.qbits.backups.model.BackupsTables;
 import com.kingsrook.qbits.backups.scope.ScopeResolver;
 import com.kingsrook.qbits.backups.storage.BackupStorage;
@@ -774,6 +775,7 @@ public class BackupEngine
       result.setStatus(status);
       result.setErrorMessage(message);
       signal(request, result, status, message);
+      BackupsMetrics.invalidate();
    }
 
 

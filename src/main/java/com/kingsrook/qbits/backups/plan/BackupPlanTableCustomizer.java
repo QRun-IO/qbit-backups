@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import com.kingsrook.qbits.backups.metrics.BackupsMetrics;
 import com.kingsrook.qbits.backups.model.BackupsTables;
 import com.kingsrook.qbits.backups.run.BackupCatalog;
 import com.kingsrook.qbits.backups.run.BackupRunFactory;
@@ -31,6 +32,9 @@ import com.kingsrook.qqq.backend.core.actions.customizers.TableCustomizerInterfa
 import com.kingsrook.qqq.backend.core.context.QContext;
 import com.kingsrook.qqq.backend.core.exceptions.QException;
 import com.kingsrook.qqq.backend.core.model.actions.AbstractActionInput;
+import com.kingsrook.qqq.backend.core.model.actions.tables.delete.DeleteInput;
+import com.kingsrook.qqq.backend.core.model.actions.tables.insert.InsertInput;
+import com.kingsrook.qqq.backend.core.model.actions.tables.update.UpdateInput;
 import com.kingsrook.qqq.backend.core.model.data.QRecord;
 import com.kingsrook.qqq.backend.core.model.session.QSession;
 import com.kingsrook.qqq.backend.core.model.statusmessages.BadInputStatusMessage;
@@ -43,7 +47,8 @@ import com.kingsrook.qqq.backend.core.model.statusmessages.QWarningMessage;
  ** configuration (the processes write the last run and SLA fields) is not
  ** validated again.
  **
- ** The saving user becomes the plan owner when none is given.
+ ** The saving user becomes the plan owner when none is given.  After an insert,
+ ** update or delete, the cached Prometheus text is cleared on every node.
  *******************************************************************************/
 public class BackupPlanTableCustomizer implements TableCustomizerInterface
 {
@@ -118,6 +123,42 @@ public class BackupPlanTableCustomizer implements TableCustomizerInterface
          }
       }
       return (false);
+   }
+
+
+
+   /*******************************************************************************
+    ** A saved plan changes the metrics on every node.
+    *******************************************************************************/
+   @Override
+   public List<QRecord> postInsert(InsertInput insertInput, List<QRecord> records) throws QException
+   {
+      BackupsMetrics.invalidate();
+      return (records);
+   }
+
+
+
+   /*******************************************************************************
+    ** A saved plan changes the metrics on every node.
+    *******************************************************************************/
+   @Override
+   public List<QRecord> postUpdate(UpdateInput updateInput, List<QRecord> records, Optional<List<QRecord>> oldRecordList) throws QException
+   {
+      BackupsMetrics.invalidate();
+      return (records);
+   }
+
+
+
+   /*******************************************************************************
+    ** A deleted plan changes the metrics on every node.
+    *******************************************************************************/
+   @Override
+   public List<QRecord> postDelete(DeleteInput deleteInput, List<QRecord> records) throws QException
+   {
+      BackupsMetrics.invalidate();
+      return (records);
    }
 
 

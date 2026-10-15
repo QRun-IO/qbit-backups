@@ -20,10 +20,12 @@ package com.kingsrook.qbits.backups.metrics;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 import com.kingsrook.qbits.backups.BackupsQBitConfig;
 import com.kingsrook.qbits.backups.BackupsRuntime;
 import com.kingsrook.qbits.backups.model.BackupsTables;
 import com.kingsrook.qbits.backups.run.BackupCatalog;
+import com.kingsrook.qqq.backend.core.cluster.ClusterCaches;
 import com.kingsrook.qqq.backend.core.exceptions.QException;
 import com.kingsrook.qqq.backend.core.model.actions.tables.query.QCriteriaOperator;
 import com.kingsrook.qqq.backend.core.model.actions.tables.query.QFilterCriteria;
@@ -56,10 +58,21 @@ public final class BackupsMetrics
 {
    public static final String ENDPOINT_PATH = "/metrics/backups";
 
+   /** Cluster cache name of the rendered text: cleared on every node when a run finishes or a plan changes. */
+   public static final String CACHE_NAME = "qbit-backups.metrics";
+
    private static final Duration CACHE = Duration.ofSeconds(60);
 
-   private static String  cachedText;
-   private static Instant cachedAt;
+   private static final AtomicReference<Rendered> CACHED = ClusterCaches.shared(CACHE_NAME, new AtomicReference<>(), BackupsMetrics::resetCache, null);
+
+
+
+   /*******************************************************************************
+    ** The rendered text and when it was rendered.
+    *******************************************************************************/
+   private record Rendered(String text, Instant at)
+   {
+   }
 
 
 
@@ -84,12 +97,21 @@ public final class BackupsMetrics
 
 
    /*******************************************************************************
-    ** Forget the cached text (tests).
+    ** Forget the cached text on this node.
     *******************************************************************************/
-   public static synchronized void resetCache()
+   public static void resetCache()
    {
-      cachedText = null;
-      cachedAt = null;
+      CACHED.set(null);
+   }
+
+
+
+   /*******************************************************************************
+    ** Forget the cached text on every node (the backup data changed).
+    *******************************************************************************/
+   public static void invalidate()
+   {
+      ClusterCaches.invalidate(CACHE_NAME);
    }
 
 
@@ -99,13 +121,14 @@ public final class BackupsMetrics
     *******************************************************************************/
    public static synchronized String renderCached() throws QException
    {
-      Instant now = BackupsRuntime.getClock().instant();
-      if(cachedText == null || cachedAt == null || cachedAt.plus(CACHE).isBefore(now))
+      Instant  now    = BackupsRuntime.getClock().instant();
+      Rendered cached = CACHED.get();
+      if(cached == null || cached.at().plus(CACHE).isBefore(now))
       {
-         cachedText = render();
-         cachedAt = now;
+         cached = new Rendered(render(), now);
+         CACHED.set(cached);
       }
-      return (cachedText);
+      return (cached.text());
    }
 
 
