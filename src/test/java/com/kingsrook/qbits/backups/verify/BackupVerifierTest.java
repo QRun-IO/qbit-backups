@@ -591,4 +591,23 @@ class BackupVerifierTest
       }
       return (bytes.toByteArray());
    }
+
+
+   /*******************************************************************************
+    ** A verification must propagate a job interrupt, not report it as corruption.
+    *******************************************************************************/
+   @Test
+   void testDurableCancellation() throws Exception
+   {
+      BackupRunResult run = backup(plan(Map.of()));
+      try(var scope = com.kingsrook.qqq.backend.core.jobs.plans.JobChunkScope.open(null, () ->
+      {
+         throw (new com.kingsrook.qqq.backend.core.jobs.plans.JobInterruptedException(com.kingsrook.qqq.backend.core.jobs.plans.JobInterruptedException.Reason.CANCEL));
+      }))
+      {
+         org.assertj.core.api.Assertions.assertThatThrownBy(() -> new BackupVerifier().verify(run.getRunId(), BackupVerifier.CONTENT, "MANUAL", "test"))
+            .isInstanceOf(com.kingsrook.qqq.backend.core.jobs.plans.JobInterruptedException.class);
+      }
+   }
+
 }

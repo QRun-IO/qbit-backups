@@ -27,11 +27,11 @@ import java.util.Map;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import com.kingsrook.qbits.backups.BackupsTestUtils;
-import com.kingsrook.qbits.backups.model.BackupsHelp;
 import com.kingsrook.qbits.backups.model.BackupsTables;
 import com.kingsrook.qbits.backups.processes.DefaultPlanProcess;
 import com.kingsrook.qqq.backend.core.model.metadata.QInstance;
 import com.kingsrook.qqq.backend.core.model.metadata.help.QHelpContent;
+import com.kingsrook.qqq.backend.core.model.metadata.help.bundles.HelpBundles;
 import com.kingsrook.qqq.backend.core.model.metadata.tables.QTableMetaData;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -128,18 +128,24 @@ class BackupsTablesGuardrailTest
    @Test
    void everyTableHasEmptyStateHelp() throws Exception
    {
-      assertThat(BackupsHelp.entries()).allSatisfy((key, entry) -> assertThat(entry.path("summary").asText().length()).as(key).isLessThanOrEqualTo(120));
+      var bundle = HelpBundles.of(qInstance).getBundles().get(0);
       for(String table : backupsTables())
       {
-         List<QHelpContent> help = qInstance.getTable(table).getHelpContent() == null ? null : qInstance.getTable(table).getHelpContent().get(BackupsHelp.SLOT);
-         assertThat(help).as(table + " table help").isNotEmpty();
-         assertThat(help.get(0).getContent()).as(table + " help says how rows get created").contains("How rows get created");
+         assertThat(bundle.getEntries()).filteredOn(entry -> entry.getKey().equals("table:" + table + ";slot:help"))
+            .singleElement().satisfies(entry -> assertThat(entry.getContent()).contains("How rows get created"));
       }
-      assertThat(qInstance.getApp("backups").getHelpContent()).containsKey(BackupsHelp.SLOT);
-      assertThat(BackupsHelp.entries().keySet()).allMatch(key -> !key.startsWith("table:") || qInstance.getTable(key.substring(6, key.indexOf(';'))) != null,
-         "help names only real tables");
-
-      assertThat(qInstance.getTable(BackupsTables.PLAN).getHelpContent().get(BackupsHelp.SLOT).get(0).getContent()).contains("Create default plan");
+      assertThat(bundle.getEntries()).filteredOn(entry -> entry.getKey().equals("app:backups;slot:help")).hasSize(1);
+      assertThat(bundle.getEntries()).filteredOn(entry -> entry.getKey().equals("table:backups_plan;slot:help"))
+         .singleElement().satisfies(entry -> assertThat(entry.getContent()).contains("Create default plan"));
+      // RC.7 validates supplied widget/value-source entries but does not require their coverage.
+      for(String name : qInstance.getWidgets().keySet().stream().filter(name -> name.startsWith("backups")).toList())
+      {
+         assertThat(bundle.getEntries()).anyMatch(entry -> entry.getKey().startsWith("widget:" + name + ";slot:"));
+      }
+      for(String name : qInstance.getPossibleValueSources().keySet().stream().filter(name -> name.startsWith("backups_")).toList())
+      {
+         assertThat(bundle.getEntries()).anyMatch(entry -> entry.getKey().startsWith("possibleValueSource:" + name + ";slot:"));
+      }
       assertThat(qInstance.getProcess(DefaultPlanProcess.NAME)).as("the action the plan help names").isNotNull();
       assertThat(qInstance.getProcess(DefaultPlanProcess.NAME).getLabel()).isEqualTo("Create default plan");
    }
@@ -153,12 +159,14 @@ class BackupsTablesGuardrailTest
    void hostHelpIsKept() throws Exception
    {
       QTableMetaData table = qInstance.getTable(BackupsTables.RUN);
-      table.withHelpContent(BackupsHelp.SLOT, new QHelpContent("Host help for runs."));
-      qInstance.getApp("backups").withHelpContent(BackupsHelp.SLOT, new QHelpContent("Host help for the app."));
-      BackupsHelp.apply(qInstance, "backups");
-      assertThat(table.getHelpContent().get(BackupsHelp.SLOT)).singleElement().satisfies(h -> assertThat(h.getContent()).isEqualTo("Host help for runs."));
-      assertThat(qInstance.getApp("backups").getHelpContent().get(BackupsHelp.SLOT)).singleElement().satisfies(h -> assertThat(h.getContent()).isEqualTo("Host help for the app."));
-      assertThat(qInstance.getTable(BackupsTables.PLAN).getHelpContent().get(BackupsHelp.SLOT).get(0).getContent()).contains("How rows get created");
+      table.withHelpContent("help", new QHelpContent("Host help for runs."));
+      qInstance.getApp("backups").withHelpContent("help", new QHelpContent("Host help for the app."));
+      HelpBundles.register(qInstance, "help/qbit-backups.yaml");
+      assertThat(qInstance.getTable("helpContent")).isNull();
+      HelpBundles.syncOnStartup(qInstance);
+      assertThat(table.getHelpContent().get("help")).singleElement().satisfies(h -> assertThat(h.getContent()).isEqualTo("Host help for runs."));
+      assertThat(qInstance.getApp("backups").getHelpContent().get("help")).singleElement().satisfies(h -> assertThat(h.getContent()).isEqualTo("Host help for the app."));
+      assertThat(HelpBundles.of(qInstance).getBundles()).isNotEmpty();
    }
 
 

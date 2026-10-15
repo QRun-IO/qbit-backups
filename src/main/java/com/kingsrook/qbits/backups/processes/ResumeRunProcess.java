@@ -70,7 +70,7 @@ public final class ResumeRunProcess
    public static QProcessMetaData process()
    {
       return (BackupsProcesses.permission(BackupsProcesses.etl(NAME, "Resume", BackupsTables.RUN, Transform.class, Load.class,
-         "This is a preview of where each selected run will carry on. Nothing is written until you continue."), BackupsPermissions.RUN));
+         "This is a preview of where each selected run will carry on. Nothing is written until you continue.").withSupplementalMetaData(BackupsProcesses.durability()), BackupsPermissions.RUN));
    }
 
 
@@ -167,7 +167,8 @@ public final class ResumeRunProcess
       {
          for(QRecord run : input.getRecords())
          {
-            BackupRunResult result = new BackupRunCoordinator().resume(run);
+            BackupRunResult result = new BackupRunCoordinator().resume(run, com.kingsrook.qqq.backend.core.jobs.progress.JobProgress.of(input));
+            BackupsProcesses.requireSuccessfulJob(result);
             switch(result.getStatus())
             {
                case "SUCCEEDED" -> succeeded.incrementCountAndAddPrimaryKey(run.getValue("id"));

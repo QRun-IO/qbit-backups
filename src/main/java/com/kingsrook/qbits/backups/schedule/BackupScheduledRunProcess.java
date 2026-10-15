@@ -80,7 +80,7 @@ public class BackupScheduledRunProcess implements BackendStep
             .withInputData(new QFunctionInputMetaData().withRecordListMetaData(new QRecordListMetaData().withTableName(BackupsTables.PLAN)))
             .withCode(new QCodeReference(BackupScheduledRunProcess.class)));
       process.setPermissionRules(BackupsTables.permissionRules());
-      return (BackupsProcesses.permission(process, BackupsPermissions.RUN));
+      return (BackupsProcesses.permission(process.withSupplementalMetaData(BackupsProcesses.durability()), BackupsPermissions.RUN));
    }
 
 
@@ -147,11 +147,12 @@ public class BackupScheduledRunProcess implements BackendStep
       }
       BackupsRuntime.getAlertSink().resolve("backups.plan.owner-invalid", "backups.plan.owner-invalid:" + plan.getValueString("planKey"));
 
-      BackupRunResult result = new BackupRunCoordinator().runPlan(plan, "SCHEDULED");
+      BackupRunResult result = new BackupRunCoordinator().runPlan(plan, "SCHEDULED", com.kingsrook.qqq.backend.core.jobs.progress.JobProgress.of(input), null);
       output.addValue("status", result.getStatus());
       output.addValue("runId", result.getRunId());
       if(!"SUCCEEDED".equals(result.getStatus()) && !"SUCCEEDED_WITH_WARNINGS".equals(result.getStatus()))
       {
+         BackupsProcesses.requireSuccessfulJob(result);
          LOG.info("A scheduled backup did not succeed", logPair("plan", plan.getValueString("planKey")), logPair("status", result.getStatus()), logPair("message", result.getErrorMessage()));
       }
    }

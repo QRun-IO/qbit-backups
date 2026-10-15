@@ -30,6 +30,8 @@ import com.kingsrook.qbits.backups.BackupsRuntime;
 import com.kingsrook.qbits.backups.alerts.BackupAlertSink;
 import com.kingsrook.qbits.backups.model.BackupsTables;
 import com.kingsrook.qqq.backend.core.exceptions.QException;
+import com.kingsrook.qqq.backend.core.jobs.plans.JobChunkScope;
+import com.kingsrook.qqq.backend.core.jobs.progress.JobProgress;
 import com.kingsrook.qqq.backend.core.logging.QLogger;
 import com.kingsrook.qqq.backend.core.model.data.QRecord;
 import static com.kingsrook.qqq.backend.core.logging.LogUtils.logPair;
@@ -85,7 +87,28 @@ public class BackupRunCoordinator
     *******************************************************************************/
    public BackupRunResult runPlan(QRecord plan, String trigger, java.util.function.Consumer<BackupRunRequest> customizer) throws QException
    {
-      BackupRunRequest request = BackupRunFactory.forPlan(plan, trigger);
+      return (runPlan(plan, trigger, JobProgress.current(), customizer));
+   }
+
+
+
+   /*******************************************************************************
+    ** Share the step reporter and reuse a durable job's run on an explicit retry.
+    ** NONE idempotency prevents automatic replay of non-atomic external writes.
+    *******************************************************************************/
+   public BackupRunResult runPlan(QRecord plan, String trigger, JobProgress progress, java.util.function.Consumer<BackupRunRequest> customizer) throws QException
+   {
+      BackupEngine.prepare(progress);
+      BackupRunRequest request;
+      try
+      {
+         request = BackupRunFactory.forPlan(plan, trigger).withProgress(progress);
+      }
+      catch(QException | RuntimeException e)
+      {
+         progress.error("Could not resolve backup scope (" + e.getClass().getSimpleName() + ")");
+         throw (new QException("Could not resolve backup scope", e));
+      }
       if(customizer != null)
       {
          customizer.accept(request);
@@ -97,21 +120,72 @@ public class BackupRunCoordinator
          BackupRunResult result = new BackupRunResult();
          result.setStatus("FAILED");
          result.setErrorMessage(refusal);
+         progress.error(refusal);
          return (result);
       }
 
-      Claim claim = claim(plan.getValueInteger("id"), null, trigger, request.getRequestedBy(), true);
+      JobChunkScope.ChunkIdentity identity = JobChunkScope.current().map(JobChunkScope::getIdentity).orElse(null);
+      Integer existingRunId = null;
+      if(identity != null)
+      {
+         String key = "job-" + identity.jobId() + "-plan-" + plan.getValueInteger("id");
+         request.withRunKey(key);
+         List<QRecord> previous = catalog.where(BackupsTables.RUN, "runKey", key);
+         if(!previous.isEmpty())
+         {
+            QRecord run = previous.get(0);
+            existingRunId = run.getValueInteger("id");
+            if(run.getValueString("manifestKey") != null)
+            {
+               progress.info("Run " + existingRunId + " already has a manifest; nothing was rewritten. Use Verify backup to recheck it.");
+               BackupRunResult result = new BackupRunResult();
+               result.setRunId(existingRunId);
+               result.setRunKey(key);
+               result.setRunPrefix(run.getValueString("runPrefix"));
+               result.setManifestKey(run.getValueString("manifestKey"));
+               result.setStatus(run.getValueString("status"));
+               return (result);
+            }
+            if(run.getValueString("runPrefix") != null)
+            {
+               // Only the same durable job can recover its interrupted RUNNING row.
+               if("RUNNING".equals(run.getValueString("status")))
+               {
+                  catalog.update(BackupsTables.RUN, existingRunId, Map.of("status", "ABANDONED"));
+                  run.setValue("status", "ABANDONED");
+               }
+               String why = BackupResumePlanner.whyNotResumable(run, plan);
+               if(why != null)
+               {
+                  progress.error(why);
+                  throw (new QException(why));
+               }
+               request.withResume(BackupResumePlanner.plan(run));
+            }
+         }
+      }
+      Claim claim = claim(plan.getValueInteger("id"), existingRunId, trigger, request.getRequestedBy(), identity == null, request.getRunKey());
       try
       {
          if(claim.outcome != Outcome.STARTED)
          {
+            progress.warn(claim.message);
+            if(identity != null)
+            {
+               if(claim.outcome == Outcome.QUEUED)
+               {
+                  catalog.update(BackupsTables.RUN, claim.runId, Map.of("status", "FAILED", "endDate", now(), "errorMessage", claim.message));
+               }
+               progress.error("Backup could not start: " + claim.message);
+               throw (new QException("Backup could not start: " + claim.message));
+            }
             return (claim.toResult());
          }
          return (execute(request, claim.runId));
       }
       finally
       {
-         if(claim.outcome == Outcome.STARTED)
+         if(claim.outcome == Outcome.STARTED && JobChunkScope.current().isEmpty())
          {
             drainQueue();
          }
@@ -133,7 +207,10 @@ public class BackupRunCoordinator
       }
       finally
       {
-         drainQueue();
+         if(JobChunkScope.current().isEmpty())
+         {
+            drainQueue();
+         }
       }
    }
 
@@ -144,6 +221,16 @@ public class BackupRunCoordinator
     ** message) when it cannot be resumed, or when a run of the plan is live.
     *******************************************************************************/
    public BackupRunResult resume(QRecord run) throws QException
+   {
+      return (resume(run, JobProgress.current()));
+   }
+
+
+
+   /*******************************************************************************
+    ** Resume using the caller's reporter (including an inline async callback).
+    *******************************************************************************/
+   public BackupRunResult resume(QRecord run, JobProgress progress) throws QException
    {
       QRecord plan = run.getValueInteger("backupPlanId") == null ? null : catalog.get(BackupsTables.PLAN, run.getValueInteger("backupPlanId")).orElse(null);
       String  why  = BackupResumePlanner.whyNotResumable(run, plan);
@@ -156,7 +243,7 @@ public class BackupRunCoordinator
          return (refused);
       }
 
-      BackupRunRequest request = BackupRunFactory.forPlan(plan, "MANUAL");
+      BackupRunRequest request = BackupRunFactory.forPlan(plan, "MANUAL").withProgress(progress);
       Claim claim = claim(plan.getValueInteger("id"), run.getValueInteger("id"), run.getValueString("trigger"), request.getRequestedBy(), false);
       if(claim.outcome != Outcome.STARTED)
       {
@@ -173,7 +260,10 @@ public class BackupRunCoordinator
       }
       finally
       {
-         drainQueue();
+         if(JobChunkScope.current().isEmpty())
+         {
+            drainQueue();
+         }
       }
    }
 
@@ -238,7 +328,7 @@ public class BackupRunCoordinator
    /*******************************************************************************
     ** Run the engine on a claimed run row, then return its result.
     *******************************************************************************/
-   private BackupRunResult execute(BackupRunRequest request, Integer runId)
+   private BackupRunResult execute(BackupRunRequest request, Integer runId) throws QException
    {
       request.withExistingRunId(runId).withCancelRequested(() -> catalog.isCancelRequested(runId));
       return (new BackupEngine().execute(request));
@@ -251,6 +341,16 @@ public class BackupRunCoordinator
     *******************************************************************************/
    private Claim claim(Integer planId, Integer existingRunId, String trigger, String requestedBy, boolean queueIfFull) throws QException
    {
+      return (claim(planId, existingRunId, trigger, requestedBy, queueIfFull, null));
+   }
+
+
+
+   /*******************************************************************************
+    ** Persist the job identity in the initial claim, before any external writes.
+    *******************************************************************************/
+   private Claim claim(Integer planId, Integer existingRunId, String trigger, String requestedBy, boolean queueIfFull, String runKey) throws QException
+   {
       synchronized(LEASE_LOCK)
       {
          Instant       now  = now();
@@ -261,7 +361,7 @@ public class BackupRunCoordinator
          {
             Map<String, Serializable> values = new LinkedHashMap<>();
             values.put("backupPlanId", planId);
-            values.put("runKey", "queued-" + UUID.randomUUID().toString().substring(0, 8));
+            values.put("runKey", runKey != null ? runKey : "queued-" + UUID.randomUUID().toString().substring(0, 8));
             values.put("trigger", trigger);
             values.put("requestedByUserId", requestedBy);
             values.put("status", QUEUED);

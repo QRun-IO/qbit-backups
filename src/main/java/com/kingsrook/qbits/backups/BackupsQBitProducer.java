@@ -17,6 +17,7 @@
 package com.kingsrook.qbits.backups;
 
 
+import com.kingsrook.qqq.backend.core.model.metadata.help.bundles.HelpBundles;
 import com.kingsrook.qqq.backend.core.model.metadata.qbits.QBitMetaData;
 import com.kingsrook.qqq.backend.core.model.metadata.qbits.QBitMetaDataProducer;
 
@@ -160,7 +161,8 @@ public class BackupsQBitProducer implements QBitMetaDataProducer<BackupsQBitConf
       com.kingsrook.qqq.backend.core.model.metadata.layout.QAppMetaData app = com.kingsrook.qbits.backups.app.BackupsApp.app(qBitConfig, tables);
       output.add(app);
       output.addSelfToInstance(qInstance);
-      com.kingsrook.qbits.backups.model.BackupsHelp.apply(qInstance, app.getName());
+      // Registration is metadata-only; core guards startup sync when helpContent is absent.
+      HelpBundles.register(qInstance, "help/qbit-backups.yaml");
 
       // A parent app only lists the apps that are its children, so attach ourselves (for example Admin, then Backups).
       com.kingsrook.qqq.backend.core.model.metadata.layout.QAppMetaData parent = qBitConfig.getParentAppName() == null ? null : qInstance.getApp(qBitConfig.getParentAppName());

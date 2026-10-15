@@ -30,6 +30,11 @@ import com.kingsrook.qbits.backups.run.BackupRunFactory;
 import com.kingsrook.qbits.backups.run.BackupRunResult;
 import com.kingsrook.qbits.backups.scope.ScopeResolver;
 import com.kingsrook.qqq.backend.core.exceptions.QException;
+import com.kingsrook.qqq.backend.core.jobs.DurableProcessMetaData;
+import com.kingsrook.qqq.backend.core.jobs.model.JobIdempotency;
+import com.kingsrook.qqq.backend.core.jobs.plans.JobChunkScope;
+import com.kingsrook.qqq.backend.core.jobs.plans.JobInterruptedException;
+import com.kingsrook.qqq.backend.core.jobs.progress.JobProgress;
 import com.kingsrook.qqq.backend.core.model.actions.processes.ProcessSummaryLine;
 import com.kingsrook.qqq.backend.core.model.actions.processes.ProcessSummaryLineInterface;
 import com.kingsrook.qqq.backend.core.model.actions.processes.RunBackendStepInput;
@@ -71,13 +76,47 @@ public final class BackupsProcesses
    {
       List<QProcessMetaData> processes = new ArrayList<>();
       processes.add(permission(etl(RUN_PLAN, "Run backup now", BackupsTables.PLAN, RunPlanTransform.class, RunPlanLoad.class,
-         "This is a preview of what the backup will include. Nothing is written until you continue."), BackupsPermissions.RUN));
+         "This is a preview of what the backup will include. Nothing is written until you continue.").withSupplementalMetaData(durability()), BackupsPermissions.RUN));
       processes.add(DefaultPlanProcess.process());
       processes.addAll(VerifyProcesses.processes());
       processes.addAll(RestoreProcesses.processes());
       processes.addAll(CatalogProcesses.processes());
       processes.addAll(LifecycleProcesses.processes());
       return (processes);
+   }
+
+
+
+   /*******************************************************************************
+    ** External writes cannot commit with the job chunk. Require review before retry
+    ** instead of claiming that replay is naturally idempotent.
+    *******************************************************************************/
+   public static DurableProcessMetaData durability()
+   {
+      return (new DurableProcessMetaData().withEligible(true).withAlwaysDurable(true)
+         .withChunkSize(1).withIdempotency(JobIdempotency.NONE));
+   }
+
+
+
+   /*******************************************************************************
+    ** A durable worker must see failures/cancellation instead of a successful ETL
+    ** summary. Inline callers retain the existing result-screen behavior.
+    *******************************************************************************/
+   public static void requireSuccessfulJob(BackupRunResult result) throws QException
+   {
+      if(JobChunkScope.current().isEmpty())
+      {
+         return;
+      }
+      if("CANCELLED".equals(result.getStatus()))
+      {
+         throw (new JobInterruptedException(JobInterruptedException.Reason.CANCEL));
+      }
+      if(!result.isUsable())
+      {
+         throw (new QException(result.getErrorMessage() == null ? "Backup did not complete" : result.getErrorMessage()));
+      }
    }
 
 
@@ -229,8 +268,9 @@ public final class BackupsProcesses
       {
          for(QRecord plan : input.getRecords())
          {
-            BackupRunResult result = new BackupRunCoordinator().runPlan(plan, "MANUAL");
+            BackupRunResult result = new BackupRunCoordinator().runPlan(plan, "MANUAL", JobProgress.of(input), null);
             results.add(result);
+            requireSuccessfulJob(result);
             switch(result.getStatus())
             {
                case "SUCCEEDED" -> succeeded.incrementCountAndAddPrimaryKey(result.getRunId());

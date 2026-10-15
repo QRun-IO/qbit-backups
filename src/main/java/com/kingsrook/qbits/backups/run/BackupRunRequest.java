@@ -26,6 +26,7 @@ import com.kingsrook.qbits.backups.files.FileReferenceProvider;
 import com.kingsrook.qbits.backups.scope.PlanSettings;
 import com.kingsrook.qbits.backups.scope.ScopeResolver;
 import com.kingsrook.qbits.backups.storage.BackupStorage;
+import com.kingsrook.qqq.backend.core.jobs.progress.JobProgress;
 
 
 /*******************************************************************************
@@ -54,6 +55,50 @@ public class BackupRunRequest
    private java.util.function.Function<String, BackupStorage> sourceResolver;
    private Integer                    existingRunId;
    private ResumeState                resume;
+   private JobProgress                progress = JobProgress.current();
+   private String                     runKey;
+
+
+
+   /*******************************************************************************
+    ** The reporter shared by the process, coordinator and engine.
+    *******************************************************************************/
+   public JobProgress getProgress()
+   {
+      return (progress);
+   }
+
+
+
+   /*******************************************************************************
+    ** Supply the process reporter, including its inline async callback.
+    *******************************************************************************/
+   public BackupRunRequest withProgress(JobProgress progress)
+   {
+      this.progress = progress;
+      return (this);
+   }
+
+
+
+   /*******************************************************************************
+    ** A stable identity for an explicitly retried durable job.
+    *******************************************************************************/
+   public String getRunKey()
+   {
+      return (runKey);
+   }
+
+
+
+   /*******************************************************************************
+    ** Set the durable job's backup identity before creating any artifacts.
+    *******************************************************************************/
+   public BackupRunRequest withRunKey(String runKey)
+   {
+      this.runKey = runKey;
+      return (this);
+   }
 
 
 
