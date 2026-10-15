@@ -61,6 +61,7 @@ import com.kingsrook.qqq.backend.core.model.session.QSystemUserSession;
 import com.kingsrook.qqq.backend.core.modules.backend.implementations.memory.MemoryBackendModule;
 import com.kingsrook.qqq.backend.core.modules.backend.implementations.memory.MemoryRecordStore;
 import com.kingsrook.qqq.backend.core.scheduler.QScheduleManager;
+import com.kingsrook.qqq.backend.core.testing.HelpBundleAssertions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -320,4 +321,22 @@ class BackupPlanScheduleTest
       assertThat(inactive.getValues().get("status")).isEqualTo("INACTIVE");
       assertThat(catalog.where(BackupsTables.RUN, "backupPlanId", planId)).isEmpty();
    }
+
+
+   /*******************************************************************************
+    ** Cover every qbit target, including optional scheduler integration processes.
+    *******************************************************************************/
+   @Test
+   void helpBundleIsComplete()
+   {
+      QInstance qInstance = QContext.getQInstance();
+      HelpBundleAssertions.forInstance(qInstance)
+         .bundles("help/qbit-backups.yaml")
+         // Core owns the generated bulk CRUD actions; this qbit owns its export actions on host tables.
+         .owning(target -> target.owner() instanceof com.kingsrook.qqq.backend.core.model.metadata.processes.QProcessMetaData process
+            ? qInstance.getQBits().containsKey(process.getSourceQBitName())
+            : target.name().startsWith("backups"))
+         .assertComplete();
+   }
+
 }
