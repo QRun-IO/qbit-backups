@@ -16,6 +16,7 @@ All notable changes to this project are documented here. The format follows Keep
 - Repository scaffold: `BackupsQBitConfig` and `BackupsQBitProducer` (table prefix `backups_`, permissions `backups.*`), build, CI and repository standard files.
 
 ### Changed
+- Read the QBit metadata version from the Maven artifact version so release builds report their released version.
 - Target QQQ `4.1.0-RC.8` (job progress).
 - Persist controlled backup failure messages instead of untrusted provider exception text.
 - Pin QQQ to released 4.1.0-RC.7 and replace the temporary help loader with core HelpBundles registration.
