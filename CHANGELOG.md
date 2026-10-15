@@ -5,6 +5,9 @@ All notable changes to this project are documented here. The format follows Keep
 ## [0.1.0] - Unreleased
 
 ### Added
+- Always-durable backup, resume, scheduled backup, restore and verify processes with conservative `NONE` idempotency and stable backup identities on explicit job retry.
+- Weighted backup phases, table/file counts, stored bytes, safe per-table/artifact logs, warnings, failures and resume notices through QQQ `JobProgress`.
+- Cooperative job cancellation during backup pages, media copying, restore pages and verification scans; local media-reference spooling keeps phase separation from growing heap usage across tables.
 - Complete host-neutral in-app help bundle with live references and a help coverage gate. Hosts can override entries with a HOST bundle.
 - Guided empty states: help bundle `help/qbit-backups.yaml` (app and all nine tables, with "How rows get created") applied by `BackupsHelp`, and a Setup card on the Backups home (plan, scope rules, storage, schedule, verification, prune bucket).
 - "Create default plan" table action on Backup plans: adds "Nightly full" for a storage bucket alias; insert-only.
@@ -12,6 +15,8 @@ All notable changes to this project are documented here. The format follows Keep
 - Repository scaffold: `BackupsQBitConfig` and `BackupsQBitProducer` (table prefix `backups_`, permissions `backups.*`), build, CI and repository standard files.
 
 ### Changed
+- Target QQQ `4.1.0-RC.8` (job progress).
+- Persist controlled backup failure messages instead of untrusted provider exception text.
 - Pin QQQ to released 4.1.0-RC.7 and replace the temporary help loader with core HelpBundles registration.
 - Saving a plan with Use read replica on is refused (it was never read); the not-yet-available settings (read replica, native dump, incremental, PARQUET, ZSTD) say so in their field help; scheduledJobId is documented as unused.
 - Build against the released QQQ BOM 4.1.0-RC.5; replace reflective alerts binding with core QAlerts and real sink integration tests.

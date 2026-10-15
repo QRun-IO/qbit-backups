@@ -17,16 +17,21 @@
 package com.kingsrook.qbits.backups.run;
 
 
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.Serializable;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.Function;
@@ -47,6 +52,11 @@ import com.kingsrook.qbits.backups.scope.ScopeResolver;
 import com.kingsrook.qbits.backups.storage.BackupStorage;
 import com.kingsrook.qbits.backups.storage.WriteOptions;
 import com.kingsrook.qqq.backend.core.context.QContext;
+import com.kingsrook.qqq.backend.core.exceptions.QException;
+import com.kingsrook.qqq.backend.core.jobs.plans.JobChunkScope;
+import com.kingsrook.qqq.backend.core.jobs.plans.JobInterruptedException;
+import com.kingsrook.qqq.backend.core.jobs.progress.JobPhase;
+import com.kingsrook.qqq.backend.core.jobs.progress.JobProgress;
 import com.kingsrook.qqq.backend.core.logging.QLogger;
 import com.kingsrook.qqq.backend.core.model.data.QRecord;
 import com.kingsrook.qqq.backend.core.model.metadata.QInstance;
@@ -85,13 +95,19 @@ public class BackupEngine
 
    /*******************************************************************************
     ** Run a backup.  Never throws for a backup failure: the result carries the
-    ** status and message (and the run row is FAILED).
+    ** status and message (and the run row is FAILED). Cooperative job interrupts
+    ** propagate as QException so the durable worker handles cancellation/lease loss.
     *******************************************************************************/
-   public BackupRunResult execute(BackupRunRequest request)
+   public BackupRunResult execute(BackupRunRequest request) throws QException
    {
+      JobProgress progress = request.getProgress();
+      if(!"prepare".equals(progress.getSnapshot().getCurrentPhase()))
+      {
+         prepare(progress);
+      }
       BackupRunResult result  = new BackupRunResult();
       Instant         started = request.getClock().instant();
-      String          runKey  = request.getResume() != null ? request.getResume().runKey() : RUN_KEY_FORMAT.format(started) + "-" + UUID.randomUUID().toString().substring(0, 4);
+      String          runKey  = request.getResume() != null ? request.getResume().runKey() : request.getRunKey() != null ? request.getRunKey() : RUN_KEY_FORMAT.format(started) + "-" + UUID.randomUUID().toString().substring(0, 4);
       String          planPrefix = request.getSettings().string("prefix", "qqq-backups");
       String          instancePrefix = trimSlashes(planPrefix) + "/" + request.getInstanceName() + "/";
       String          runPrefix  = request.getResume() != null ? request.getResume().runPrefix() : instancePrefix + request.getSettings().planKey() + "/" + DATE_PATH.format(started) + "/" + runKey + "/";
@@ -139,26 +155,51 @@ public class BackupEngine
       catch(Exception e)
       {
          result.setStatus("FAILED");
-         result.setErrorMessage("Could not create the run record: " + e.getMessage());
+         result.setErrorMessage("Could not create the run record (" + e.getClass().getSimpleName() + ")");
+         failProgress(progress, "Could not create the run record (" + e.getClass().getSimpleName() + ")");
          return (result);
       }
 
       try
       {
+         checkJob();
+         if(request.getResume() != null)
+         {
+            long complete = request.getResume().tables().values().stream().filter(ResumeState.TableState::complete).count();
+            progress.info("Resuming run " + result.getRunId() + ": " + complete + " tables already done");
+         }
          doRun(request, result, runPrefix, instancePrefix, started);
+         completePhase(progress, JobPhase.Status.DONE);
       }
       catch(CancelledException e)
       {
          finish(request, result, "CANCELLED", "Cancelled", started);
+         progress.info("Backup cancelled");
       }
       catch(TimedOutException e)
       {
          finish(request, result, "TIMED_OUT", e.getMessage(), started);
+         failProgress(progress, e.getMessage());
       }
       catch(Exception e)
       {
+         JobInterruptedException interrupted = JobInterruptedException.find(e);
+         if(interrupted != null)
+         {
+            if(interrupted.getReason() != JobInterruptedException.Reason.LEASE_LOST)
+            {
+               finish(request, result, interrupted.getReason() == JobInterruptedException.Reason.CANCEL ? "CANCELLED" : "ABANDONED", "Job interrupted", started);
+            }
+            throw (interrupted);
+         }
          LOG.warn("Backup run failed", e, logPair("runKey", runKey));
+         // Provider and reader messages can contain credentials or row values.
+         failProgress(progress, scrub(e));
          finish(request, result, "FAILED", scrub(e), started);
+      }
+      finally
+      {
+         progress.flush();
       }
       return (result);
    }
@@ -170,6 +211,7 @@ public class BackupEngine
     *******************************************************************************/
    private void doRun(BackupRunRequest request, BackupRunResult result, String runPrefix, String instancePrefix, Instant started) throws Exception
    {
+      JobProgress      progress = request.getProgress();
       QInstance        qInstance = QContext.getQInstance();
       BackupStorage    storage   = request.getStorage();
       var              settings  = request.getSettings();
@@ -188,6 +230,7 @@ public class BackupEngine
          throw (new IllegalStateException("The sensitive field policy INCLUDE_ENCRYPTED_ONLY requires client-side encryption."));
       }
       String consistency = consistencyFor(settings.string("consistency", "SNAPSHOT_PREFERRED"), result);
+      result.getWarnings().forEach(progress::warn);
       catalog.update(BackupsTables.RUN, result.getRunId(), Map.of("consistencyAchieved", result.getConsistencyAchieved()));
 
       //////////////////////////////////////////////////////////////////////////////////////
@@ -230,10 +273,15 @@ public class BackupEngine
       long                            fileBytes      = 0;
       long                            fileBytesRef   = 0;
 
-      try
+      progress.phase("tables").total(request.getScope().tables().size(), "tables").done(0).bytesDone(0);
+      try(PendingFiles pendingFiles = new PendingFiles())
       {
          for(ScopeResolver.ResolvedTable resolved : request.getScope().tables())
          {
+            checkJob();
+            long tableStarted = System.nanoTime();
+            long tableBytesBefore = bytesStored;
+            progress.message("Backing up " + resolved.name() + " (" + (done + 1) + " of " + request.getScope().tables().size() + ")");
             QTableMetaData table = qInstance.getTable(resolved.name());
             String         backendType = qInstance.getBackend(table.getBackendName()) == null ? null : qInstance.getBackend(table.getBackendName()).getBackendType();
 
@@ -242,6 +290,7 @@ public class BackupEngine
 
             ResumeState.TableState prior = request.getResume() == null ? null : request.getResume().table(table.getName());
 
+            long[] tableWritten = { 0 };
             List<TableArtifactWriter> writers = new ArrayList<>();
             String tablePrefix = runPrefix + "tables/" + table.getName() + "/";
             Map<TableArtifactWriter, Integer> lastArtifactIds = new LinkedHashMap<>();
@@ -277,6 +326,9 @@ public class BackupEngine
                   {
                      try
                      {
+                        tableWritten[0] += part.bytesStored();
+                        progress.bytesDone(tableBytesBefore + tableWritten[0]);
+                        progress.info("Wrote " + part.key().substring(runPrefix.length()));
                         lastArtifactIds.put(writer, catalog.insertArtifact(result.getRunId(), "TABLE_DATA", table.getName(), part.partNumber(), part.key().substring(runPrefix.length()),
                            part.format(), part.compression(), part.encrypted(), part.rows(), part.bytesRaw(), part.bytesStored(), part.sha256Stored(), part.sha256Raw(), null,
                            part.firstKey(), part.lastKey(), TableFingerprints.of(table, backendType)));
@@ -296,6 +348,8 @@ public class BackupEngine
                   if(canContinue)
                   {
                      TableArtifactWriter writer = writers.get(0);
+                     tableWritten[0] = prior.parts().stream().mapToLong(TableArtifactWriter.PartResult::bytesStored).sum();
+                     progress.bytesDone(tableBytesBefore + tableWritten[0]);
                      writer.resumeFrom(prior.parts());
                      seedRowsHash(storage, runPrefix, prior.parts(), writer);
                      lastArtifactIds.put(writer, prior.artifactIds().get(prior.artifactIds().size() - 1));
@@ -368,8 +422,31 @@ public class BackupEngine
             }
             rows += counter[0];
 
-            for(FileReference ref : references)
+            pendingFiles.write(references);
+
+            Map<String, String> keyRange = new LinkedHashMap<>();
+            keyRange.put("min", allResults.isEmpty() ? null : allResults.get(0).firstKey());
+            keyRange.put("max", allResults.isEmpty() ? null : allResults.get(allResults.size() - 1).lastKey());
+            manifestTables.add(new BackupManifest.TableEntry(table.getName(), resolved.role().name(), table.getBackendName(), table.getPrimaryKeyField(),
+               fingerprint, TableFingerprints.CORE_ALGORITHM, TableFingerprints.descriptor(table, backendType), resolved.filterJson(), excluded, counter[0], rowsHash, keyRange, parts, consistency));
+            done++;
+            catalogProgress(request, result, done, rows, bytesRaw, bytesStored);
+            progress.done(done).bytesDone(bytesStored);
+            progress.info(String.format(Locale.US, "%s: %,d rows, %.1f MB in %.1f s", table.getName(), counter[0],
+               (bytesStored - tableBytesBefore) / 1_000_000.0, (System.nanoTime() - tableStarted) / 1_000_000_000.0));
+            if(request.getCancelRequested().getAsBoolean())
             {
+               throw (new CancelledException());
+            }
+         }
+         progress.phase("media").total(pendingFiles.count, "files").done(0).bytesDone(bytesStored);
+         try(BufferedReader pending = pendingFiles.openReader())
+         {
+            String line;
+            while((line = pending.readLine()) != null)
+            {
+               FileReference ref = MAPPER.readValue(line, FileReference.class);
+               checkJob();
                if(indexWriter == null)
                {
                   indexWriter = new FileIndexWriter(storage, runPrefix + "files/index-00001.jsonl.gz", result.getRunKey(), fileLockMode, fileRetainUntil);
@@ -388,24 +465,16 @@ public class BackupEngine
                   case FileCopier.MISSING -> missing++;
                   default -> fileBytesRef += Math.max(0, entry.size());
                }
+               progress.done(referenced).bytesDone(bytesStored + fileBytes)
+                  .message("Media: " + copied + " copied, " + deduplicated + " already stored (" + referenced + " of " + pendingFiles.count + ")");
                if(request.getCancelRequested().getAsBoolean())
                {
                   throw (new CancelledException());
                }
             }
-
-            Map<String, String> keyRange = new LinkedHashMap<>();
-            keyRange.put("min", allResults.isEmpty() ? null : allResults.get(0).firstKey());
-            keyRange.put("max", allResults.isEmpty() ? null : allResults.get(allResults.size() - 1).lastKey());
-            manifestTables.add(new BackupManifest.TableEntry(table.getName(), resolved.role().name(), table.getBackendName(), table.getPrimaryKeyField(),
-               fingerprint, TableFingerprints.CORE_ALGORITHM, TableFingerprints.descriptor(table, backendType), resolved.filterJson(), excluded, counter[0], rowsHash, keyRange, parts, consistency));
-            done++;
-            catalogProgress(result, done, rows, bytesRaw, bytesStored);
-            if(request.getCancelRequested().getAsBoolean())
-            {
-               throw (new CancelledException());
-            }
          }
+
+         progress.info("Media: " + referenced + " files, " + copied + " copied, " + deduplicated + " already stored, " + missing + " missing");
       }
       finally
       {
@@ -415,10 +484,13 @@ public class BackupEngine
          }
       }
 
+      checkJob();
+      progress.phase("upload").message("Writing catalog and manifest");
       List<String> indexKeys = new ArrayList<>();
       if(indexWriter != null)
       {
          indexKeys.add("files/index-00001.jsonl.gz");
+         progress.info("Wrote files/index-00001.jsonl.gz");
          checksums.add(indexWriter.sha256Stored() + "  files/index-00001.jsonl.gz");
          catalog.insertArtifact(result.getRunId(), "FILE_OBJECTS_INDEX", null, 1, "files/index-00001.jsonl.gz", "JSONL", "GZIP", request.getTransform().encrypts(),
             indexWriter.rows(), indexWriter.bytesRaw(), indexWriter.bytesStored(), indexWriter.sha256Stored(), indexWriter.sha256Raw(), null, null, null, null);
@@ -431,7 +503,9 @@ public class BackupEngine
          {
             throw (new IllegalStateException(missing + " referenced files are missing at the source"));
          }
-         result.getWarnings().add(missing + " referenced files were missing at the source");
+         String warning = missing + " referenced files were missing at the source";
+         result.getWarnings().add(warning);
+         progress.warn(warning);
       }
 
       /////////////////////////////////////////////////////////
@@ -439,6 +513,7 @@ public class BackupEngine
       /////////////////////////////////////////////////////////
       byte[] checksumBytes = (String.join("\n", checksums) + "\n").getBytes(StandardCharsets.UTF_8);
       putBytes(storage, runPrefix + "checksums.sha256", checksumBytes, result.getRunKey(), lockMode, retainUntil);
+      progress.info("Wrote checksums.sha256");
       catalog.insertArtifact(result.getRunId(), "CHECKSUMS", null, 1, "checksums.sha256", "TEXT", "NONE", false, checksums.size(), checksumBytes.length,
          checksumBytes.length, HashingOutputStream.sha256Hex(checksumBytes), HashingOutputStream.sha256Hex(checksumBytes), null, null, null, null);
 
@@ -463,6 +538,7 @@ public class BackupEngine
       {
          throw (new IllegalStateException("The manifest was written but is not visible in the bucket"));
       }
+      progress.info("Wrote manifest.json");
       catalog.insertArtifact(result.getRunId(), "MANIFEST", null, 1, "manifest.json", "JSON", "NONE", false, manifestTables.size(), manifestBytes.length,
          manifestBytes.length, HashingOutputStream.sha256Hex(manifestBytes), HashingOutputStream.sha256Hex(manifestBytes), null, null, null, null);
 
@@ -497,6 +573,58 @@ public class BackupEngine
       extra.put("bytesStored", bytesStored);
       extra.put("warningCount", result.getWarnings().size());
       finishWith(request, result, result.getWarnings().isEmpty() ? "SUCCEEDED" : "SUCCEEDED_WITH_WARNINGS", null, started, extra);
+   }
+
+
+
+   /*******************************************************************************
+    ** Declare the work before scope resolution. No byte estimate requires a scan.
+    *******************************************************************************/
+   public static void prepare(JobProgress progress)
+   {
+      progress.phases(JobPhase.of("prepare", "Resolve scope", 2), JobPhase.of("tables", "Back up tables", 75),
+         JobPhase.of("media", "Copy media files", 18), JobPhase.of("upload", "Write catalog and manifest", 5));
+      progress.phase("prepare").message("Resolving scope");
+   }
+
+
+
+   /*******************************************************************************
+    ** Complete or fail the current phase; the core has no phase-finish method.
+    *******************************************************************************/
+   private static void completePhase(JobProgress progress, JobPhase.Status status)
+   {
+      progress.getSnapshot().getPhases().stream().filter(p -> p.getStatus() == JobPhase.Status.RUNNING).forEach(p -> p.setStatus(status));
+      progress.flush();
+   }
+
+
+
+   /*******************************************************************************
+    ** Log only a controlled failure description, never provider or row text.
+    *******************************************************************************/
+   private static void failProgress(JobProgress progress, String message)
+   {
+      completePhase(progress, JobPhase.Status.FAILED);
+      progress.error(message);
+   }
+
+
+
+   /*******************************************************************************
+    ** Bridge checked job interrupts through the row consumer, preserving the cause
+    ** so execute can propagate it back to the durable worker.
+    *******************************************************************************/
+   private static void checkJob()
+   {
+      try
+      {
+         JobChunkScope.checkBetweenPages();
+      }
+      catch(QException e)
+      {
+         throw (new IllegalStateException(e));
+      }
    }
 
 
@@ -563,6 +691,7 @@ public class BackupEngine
     *******************************************************************************/
    private void heartbeat(BackupRunRequest request, BackupRunResult result, Instant deadline, String tableName, long rowsSoFar)
    {
+      checkJob();
       Instant now = request.getClock().instant();
       if(request.getCancelRequested().getAsBoolean())
       {
@@ -579,6 +708,7 @@ public class BackupEngine
       catch(Exception e)
       {
          LOG.warn("Could not record a heartbeat", e);
+         request.getProgress().warn("Could not record a heartbeat");
       }
    }
 
@@ -587,7 +717,7 @@ public class BackupEngine
    /*******************************************************************************
     **
     *******************************************************************************/
-   private void catalogProgress(BackupRunResult result, int done, long rows, long bytesRaw, long bytesStored)
+   private void catalogProgress(BackupRunRequest request, BackupRunResult result, int done, long rows, long bytesRaw, long bytesStored)
    {
       try
       {
@@ -601,6 +731,7 @@ public class BackupEngine
       catch(Exception e)
       {
          LOG.warn("Could not record progress", e);
+         request.getProgress().warn("Could not record progress");
       }
    }
 
@@ -618,6 +749,7 @@ public class BackupEngine
       catch(Exception e)
       {
          LOG.warn("Could not finish the run record", e);
+         request.getProgress().warn("Could not finish the run record");
          result.setStatus(status);
          result.setErrorMessage(message);
       }
@@ -694,13 +826,12 @@ public class BackupEngine
 
 
    /*******************************************************************************
-    ** A message safe to store: the exception type and message, never row values (the
-    ** engine never puts values in messages), truncated.
+    ** Provider exceptions may contain credentials or row values. Persist only the
+    ** failure type; detailed diagnostics stay in the server log.
     *******************************************************************************/
    private static String scrub(Exception e)
    {
-      String message = e.getClass().getSimpleName() + ": " + e.getMessage();
-      return (message.length() > 2000 ? message.substring(0, 2000) : message);
+      return ("Backup failed (" + e.getClass().getSimpleName() + "); see server logs for details.");
    }
 
 
@@ -768,6 +899,11 @@ public class BackupEngine
             if(stopAfterKey != null && !stopAfterKey.equals(String.valueOf(record.getValue(pk))) && keyAfter(record.getValue(pk), stopAfterKey))
             {
                throw (new StopReadingException());
+            }
+            checkJob();
+            if(request.getCancelRequested().getAsBoolean())
+            {
+               throw (new CancelledException());
             }
             for(FileReferenceProvider provider : request.getFileProviders())
             {
@@ -849,6 +985,75 @@ public class BackupEngine
       TimedOutException(String message)
       {
          super(message);
+      }
+   }
+
+
+
+   /***************************************************************************
+    ** Spool references locally between table export and media copy. Keeping the
+    ** whole run's references in heap would make memory grow with every table.
+    ** The temporary file is removed on success, failure and cancellation.
+    ***************************************************************************/
+   private static class PendingFiles implements AutoCloseable
+   {
+      private final Path path;
+      private final BufferedWriter writer;
+      private long count;
+
+
+
+      /*******************************************************************************
+       ** Create a private temporary spool, outside the stored backup artifacts.
+       *******************************************************************************/
+      PendingFiles() throws IOException
+      {
+         path = Files.createTempFile("qqq-backup-references-", ".jsonl");
+         writer = Files.newBufferedWriter(path, StandardCharsets.UTF_8);
+      }
+
+
+
+      /*******************************************************************************
+       ** Append this table's references without retaining earlier tables in memory.
+       *******************************************************************************/
+      void write(List<FileReference> references) throws IOException
+      {
+         for(FileReference reference : references)
+         {
+            writer.write(MAPPER.writeValueAsString(reference));
+            writer.newLine();
+            count++;
+         }
+      }
+
+
+
+      /*******************************************************************************
+       ** Finish the spool and stream it back during the media phase.
+       *******************************************************************************/
+      BufferedReader openReader() throws IOException
+      {
+         writer.close();
+         return (Files.newBufferedReader(path, StandardCharsets.UTF_8));
+      }
+
+
+
+      /*******************************************************************************
+       ** Always release the local references, including on exceptions.
+       *******************************************************************************/
+      @Override
+      public void close() throws IOException
+      {
+         try
+         {
+            writer.close();
+         }
+         finally
+         {
+            Files.deleteIfExists(path);
+         }
       }
    }
 

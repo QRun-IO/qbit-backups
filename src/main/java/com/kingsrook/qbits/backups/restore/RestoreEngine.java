@@ -49,6 +49,8 @@ import com.kingsrook.qqq.backend.core.actions.audits.AuditAction;
 import com.kingsrook.qqq.backend.core.actions.tables.DeleteAction;
 import com.kingsrook.qqq.backend.core.context.QContext;
 import com.kingsrook.qqq.backend.core.exceptions.QException;
+import com.kingsrook.qqq.backend.core.jobs.plans.JobChunkScope;
+import com.kingsrook.qqq.backend.core.jobs.plans.JobInterruptedException;
 import com.kingsrook.qqq.backend.core.logging.QLogger;
 import com.kingsrook.qqq.backend.core.model.actions.tables.delete.DeleteInput;
 import com.kingsrook.qqq.backend.core.model.actions.tables.query.QCriteriaOperator;
@@ -373,6 +375,15 @@ public class RestoreEngine
       }
       catch(QException | RuntimeException e)
       {
+         JobInterruptedException interrupted = JobInterruptedException.find(e);
+         if(interrupted != null)
+         {
+            if(interrupted.getReason() == JobInterruptedException.Reason.CANCEL)
+            {
+               catalog.update(BackupsTables.RESTORE_RUN, restoreRunId, Map.of("status", "CANCELLED", "endDate", BackupsRuntime.getClock().instant()));
+            }
+            throw (interrupted);
+         }
          LOG.warn("Restore failed", e, logPair("restoreRunId", restoreRunId));
          String message = e.getClass().getSimpleName() + ": " + e.getMessage();
          try
@@ -447,6 +458,7 @@ public class RestoreEngine
       }
 
       BackupRunRequest backup = new BackupRunRequest()
+         .withProgress(new com.kingsrook.qqq.backend.core.jobs.progress.JobProgress((com.kingsrook.qqq.backend.core.actions.async.AsyncJobCallback) null))
          .withSettings(settings)
          .withScope(new ScopeResolver(QContext.getQInstance()).resolve(settings, rules))
          .withTrigger("PRE_RESTORE")
@@ -507,10 +519,11 @@ public class RestoreEngine
     ** index.  A conflicting file (different content at the target) is only replaced
     ** by a REPLACE restore.
     *******************************************************************************/
-   private void restoreFiles(RestoreRequest request, Plan plan, RestorePass pass, RestoreOutcome outcome, Integer restoreRunId)
+   private void restoreFiles(RestoreRequest request, Plan plan, RestorePass pass, RestoreOutcome outcome, Integer restoreRunId) throws QException
    {
       for(RestorePass.FileWork work : pass.getFileWork())
       {
+         JobChunkScope.checkBetweenPages();
          if(work.conflict() && !RestoreRequest.MODE_REPLACE.equals(request.getMode()))
          {
             continue;

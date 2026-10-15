@@ -205,4 +205,24 @@ class RestoreSafetyTest
          List.of(new com.kingsrook.qqq.backend.core.model.data.QRecord().withValue("id", 99)), request, null)).hasMessageContaining("backups.restore");
    }
 
+
+
+   /*******************************************************************************
+    ** Job-page cancellation reaches the restore worker and its catalog status.
+    *******************************************************************************/
+   @Test
+   void testDurableCancellation() throws Exception
+   {
+      BackupRunResult run = RestoreTestSupport.backup(Map.of());
+      RestoreRequest request = RestoreTestSupport.request(run, RestoreRequest.MODE_UPSERT).withPreRestoreBackup(false);
+      try(var scope = com.kingsrook.qqq.backend.core.jobs.plans.JobChunkScope.open(null, () ->
+      {
+         throw (new com.kingsrook.qqq.backend.core.jobs.plans.JobInterruptedException(com.kingsrook.qqq.backend.core.jobs.plans.JobInterruptedException.Reason.CANCEL));
+      }))
+      {
+         assertThatThrownBy(() -> new RestoreEngine().execute(request)).isInstanceOf(com.kingsrook.qqq.backend.core.jobs.plans.JobInterruptedException.class);
+      }
+      assertThat(new BackupCatalog().where(BackupsTables.RESTORE_RUN, "status", "CANCELLED")).hasSize(1);
+   }
+
 }

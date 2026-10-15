@@ -29,6 +29,7 @@ import java.util.zip.GZIPInputStream;
 import com.kingsrook.qbits.backups.codec.HashingOutputStream;
 import com.kingsrook.qbits.backups.manifest.BackupManifest;
 import com.kingsrook.qqq.backend.core.exceptions.QException;
+import com.kingsrook.qqq.backend.core.jobs.plans.JobChunkScope;
 
 
 /*******************************************************************************
@@ -80,6 +81,7 @@ final class PartScanner
     *******************************************************************************/
    static Scan scan(RunBundle bundle, BackupManifest.Part part, LineConsumer consumer) throws IOException, QException
    {
+      JobChunkScope.checkBetweenPages();
       MessageDigest storedDigest = HashingOutputStream.newSha256();
       MessageDigest rawDigest    = HashingOutputStream.newSha256();
       long          lines        = 0;
@@ -102,6 +104,10 @@ final class PartScanner
                String         line;
                while((line = reader.readLine()) != null)
                {
+                  if(lines % 1000 == 0)
+                  {
+                     JobChunkScope.checkBetweenPages();
+                  }
                   lines++;
                   consumer.accept(line);
                }
