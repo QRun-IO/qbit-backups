@@ -18,6 +18,7 @@ package com.kingsrook.qbits.backups;
 
 
 import com.kingsrook.qqq.backend.core.model.metadata.QInstance;
+import com.kingsrook.qqq.backend.core.model.metadata.help.bundles.HelpBundles;
 import com.kingsrook.qqq.backend.core.model.metadata.qbits.QBitConfigValidationException;
 import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -40,12 +41,16 @@ class BackupsQBitProducerTest
       BackupsQBitConfig config    = new BackupsQBitConfig().withBackendName("rdbms");
       BackupsQBitProducer producer  = new BackupsQBitProducer().withQBitConfig(config).withNamespace("backups");
 
+      String artifactVersion = System.getProperty("qbit.artifactVersion");
+      assertThat(artifactVersion).isNotBlank();
+      assertThat(producer.getQBitMetaData().getVersion()).isEqualTo(artifactVersion).isEqualTo(BackupsQBitProducer.VERSION);
       assertThat(producer.isEnabled()).isTrue();
       assertThat(producer.getQBitConfig()).isSameAs(config);
       assertThat(producer.getNamespace()).isEqualTo("backups");
       assertThat(config.getDefaultBackendNameForTables()).isEqualTo("rdbms");
 
       producer.produce(qInstance);
+      assertThat(HelpBundles.of(qInstance).getBundles().get(0).getVersion()).isEqualTo(artifactVersion).isEqualTo(BackupsQBitProducer.VERSION);
       assertThat(qInstance.getQBits()).hasSize(1);
       assertThat(qInstance.getQBits().values().iterator().next().getArtifactId()).isEqualTo("qbit-backups");
    }
