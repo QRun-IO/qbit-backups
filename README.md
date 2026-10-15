@@ -62,6 +62,26 @@ checks empty-state, widget and possible-value-source coverage. Run it with
 
 Always use the Maven wrapper (Maven 3.9.11); Maven 3.10 cannot read the parent POM.
 
+## Durable jobs and progress
+
+Run backup now, Resume, scheduled backups, both Restore actions, and Verify backup
+are always durable jobs. Hosts must configure QQQ durable jobs and its worker.
+Review remains a preview; execution runs in the background and reports through
+the job page and jobs tray.
+
+Backups report Resolve scope, Back up tables, Copy media files, and Write catalog
+and manifest. Separate verification jobs report a single Verify phase.
+The job includes table/file counts, stored bytes, per-table
+rows and duration, artifact names, warnings and failures. Logs exclude row values,
+source file keys, storage credentials and endpoints. Provider errors use controlled
+failure messages; detailed exceptions stay in server diagnostics.
+
+These processes use `NONE` idempotency: a worker interruption requires review before
+retry because object writes and catalog updates are not atomic. Explicitly retrying
+a backup job reuses its run and resumes completed parts; it does not create another
+backup. Snapshot runs that cannot resume must be started as a new backup. See
+[the progress and retry contract](docs/DESIGN.md#job-progress-implementation) for limits and cancellation.
+
 ## License
 
 Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).

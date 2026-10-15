@@ -79,4 +79,26 @@ class BackupsQBitProducerTest
       assertThat(BackupsQBitConfig.PERMISSION_BASE_NAME).isEqualTo("backups");
    }
 
+
+
+   /*******************************************************************************
+    ** Long operations always enqueue, with no unsafe automatic external replay.
+    *******************************************************************************/
+   @Test
+   void testDurableProcesses() throws Exception
+   {
+      BackupsTestUtils.init();
+      for(String name : java.util.List.of("backupRunPlan", "backupRunScheduledPlan", "backupResumeRun", "backupRestore", "backupRestoreTable", "backupVerify"))
+      {
+         var process = com.kingsrook.qqq.backend.core.context.QContext.getQInstance().getProcess(name);
+         assertThat(process).as(name).isNotNull();
+         var durability = com.kingsrook.qqq.backend.core.jobs.DurableProcessMetaData.of(process);
+         assertThat(durability).as(name).isNotNull();
+         assertThat(durability.getAlwaysDurable()).isTrue();
+         assertThat(durability.getEligible()).isTrue();
+         assertThat(durability.getIdempotency()).isEqualTo(com.kingsrook.qqq.backend.core.jobs.model.JobIdempotency.NONE);
+         assertThat(durability.getChunkSize()).isEqualTo(1);
+      }
+   }
+
 }

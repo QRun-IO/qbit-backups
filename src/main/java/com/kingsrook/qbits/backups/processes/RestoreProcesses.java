@@ -33,6 +33,8 @@ import com.kingsrook.qbits.backups.restore.RestoreRequest;
 import com.kingsrook.qbits.backups.restore.RestoreSummaries;
 import com.kingsrook.qqq.backend.core.exceptions.QException;
 import com.kingsrook.qqq.backend.core.exceptions.QUserFacingException;
+import com.kingsrook.qqq.backend.core.jobs.progress.JobPhase;
+import com.kingsrook.qqq.backend.core.jobs.progress.JobProgress;
 import com.kingsrook.qqq.backend.core.model.actions.processes.ProcessSummaryLineInterface;
 import com.kingsrook.qqq.backend.core.model.actions.processes.RunBackendStepInput;
 import com.kingsrook.qqq.backend.core.model.actions.processes.RunBackendStepOutput;
@@ -107,7 +109,7 @@ public final class RestoreProcesses
       process.setLabel(label);
       process.setTableName(table);
       process.setPermissionRules(BackupsTables.permissionRules());
-      return (process);
+      return (process.withSupplementalMetaData(BackupsProcesses.durability()));
    }
 
 
@@ -241,13 +243,38 @@ public final class RestoreProcesses
       @Override
       public void runOnePage(RunBackendStepInput input, RunBackendStepOutput output) throws QException
       {
+         JobProgress progress = JobProgress.of(input);
+         progress.phases(JobPhase.of("restore", "Restore backups", 100)).phase("restore");
+         Map<Integer, Set<String>> sources = sources(input.getRecords());
+         progress.total(sources.size(), "backups").done(0);
+         int done = 0;
          RestoreEngine engine = new RestoreEngine();
-         for(Map.Entry<Integer, Set<String>> source : sources(input.getRecords()).entrySet())
+         try
          {
-            RestoreRequest request = RestoreRequest.fromInput(input, source.getKey(), new ArrayList<>(source.getValue()));
-            outcomes.add(engine.execute(request));
+            for(Map.Entry<Integer, Set<String>> source : sources.entrySet())
+            {
+               progress.message("Restoring backup " + source.getKey());
+               RestoreRequest request = RestoreRequest.fromInput(input, source.getKey(), new ArrayList<>(source.getValue()));
+               outcomes.add(engine.execute(request));
+               progress.info("Restored backup " + source.getKey());
+               progress.done(++done);
+            }
+            progress.getSnapshot().getPhases().getFirst().setStatus(JobPhase.Status.DONE);
+            output.getRecords().addAll(input.getRecords());
          }
-         output.getRecords().addAll(input.getRecords());
+         catch(QException | RuntimeException e)
+         {
+            progress.getSnapshot().getPhases().getFirst().setStatus(JobPhase.Status.FAILED);
+            if(com.kingsrook.qqq.backend.core.jobs.plans.JobInterruptedException.find(e) == null)
+            {
+               progress.error("Restore failed (" + e.getClass().getSimpleName() + ")");
+            }
+            throw (e);
+         }
+         finally
+         {
+            progress.flush();
+         }
       }
 
 

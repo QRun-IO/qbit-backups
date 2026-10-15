@@ -24,10 +24,10 @@ import java.util.List;
 import java.util.Map;
 import com.kingsrook.qbits.backups.BackupsRuntime;
 import com.kingsrook.qbits.backups.BackupsTestUtils;
-import com.kingsrook.qbits.backups.LifecycleTestSupport;
 import com.kingsrook.qbits.backups.LifecycleTestSupport.EtlSummaries;
 import com.kingsrook.qbits.backups.LifecycleTestSupport.MutableClock;
 import com.kingsrook.qbits.backups.LifecycleTestSupport.RecordingAlertSink;
+import com.kingsrook.qbits.backups.LifecycleTestSupport;
 import com.kingsrook.qbits.backups.manifest.BackupManifest;
 import com.kingsrook.qbits.backups.model.BackupsTables;
 import com.kingsrook.qbits.backups.processes.CancelRunProcess;
@@ -296,7 +296,7 @@ class BackupRunCoordinatorTest
       QRecord         plan   = LifecycleTestSupport.plan(perTableTinyParts);
       BackupRunResult failed = new BackupRunCoordinator().runPlan(plan, "MANUAL", request -> request.withReader(failingAfter(request.getReader(), "blogPost", 4)));
       assertThat(failed.getStatus()).isEqualTo("FAILED");
-      assertThat(failed.getErrorMessage()).contains("injected failure in blogPost");
+      assertThat(failed.getErrorMessage()).contains("Backup failed");
       assertThat(BackupsTestUtils.BACKUPS.list(failed.getRunPrefix() + "manifest.json")).isEmpty();
 
       QRecord failedRow = catalog.get(BackupsTables.RUN, failed.getRunId()).orElseThrow();
@@ -384,4 +384,59 @@ class BackupRunCoordinatorTest
       assertThat(manifest.table("blogPost").parts()).hasSize(7);
       assertThat(catalog.where(BackupsTables.ARTIFACT, "backupRunId", failed.getRunId()).stream().filter(a -> "blogPost".equals(a.getValueString("tableName")))).hasSize(7);
    }
+
+
+   /*******************************************************************************
+    ** Explicit retry of a durable chunk must reuse its backup and completed parts.
+    *******************************************************************************/
+   @Test
+   void testDurableRetryResumesSameRun() throws Exception
+   {
+      QRecord plan = LifecycleTestSupport.plan(Map.of());
+      BackupEngineTest.RecordingProgress progress = new BackupEngineTest.RecordingProgress();
+      var identity = new com.kingsrook.qqq.backend.core.jobs.plans.JobChunkScope.ChunkIdentity(42, 8, 0, "backupRunPlan");
+      try(var scope = com.kingsrook.qqq.backend.core.jobs.plans.JobChunkScope.open(null, null, identity).withProgress(progress))
+      {
+         BackupsTestUtils.BACKUPS.withFailWritesFor(key -> key.contains("/tables/blogPost/"));
+         BackupRunResult failed = new BackupRunCoordinator().runPlan(plan, "MANUAL");
+         assertThat(failed.getStatus()).isEqualTo("FAILED");
+         BackupsTestUtils.BACKUPS.withFailWritesFor(key -> false);
+         // A worker death can leave RUNNING rather than FAILED; identity, not age,
+         // ties this recovery to the same durable job.
+         catalog.update(BackupsTables.RUN, failed.getRunId(), Map.of("status", "RUNNING"));
+         BackupRunResult resumed = new BackupRunCoordinator().runPlan(plan, "MANUAL");
+         assertThat(resumed.isUsable()).isTrue();
+         assertThat(resumed.getRunId()).isEqualTo(failed.getRunId());
+         assertThat(resumed.getRunPrefix()).isEqualTo(failed.getRunPrefix());
+         assertThat(progress.logs).contains("INFO:Resuming run " + failed.getRunId() + ": 1 tables already done");
+         assertThat(catalog.where(BackupsTables.RUN, "backupPlanId", plan.getValueInteger("id"))).hasSize(1);
+         int artifacts = catalog.where(BackupsTables.ARTIFACT, "backupRunId", failed.getRunId()).size();
+         BackupRunResult again = new BackupRunCoordinator().runPlan(plan, "MANUAL");
+         assertThat(again.getRunId()).isEqualTo(failed.getRunId());
+         assertThat(catalog.where(BackupsTables.ARTIFACT, "backupRunId", failed.getRunId())).hasSize(artifacts);
+      }
+   }
+
+
+
+   /*******************************************************************************
+    ** A durable job refused for capacity must not escape into the inline queue.
+    *******************************************************************************/
+   @Test
+   void testDurableCapacityRefusalDoesNotQueue() throws Exception
+   {
+      QRecord occupied = LifecycleTestSupport.plan(Map.of());
+      liveRun(occupied.getValueInteger("id"), "RUNNING", clock.instant());
+      QRecord requested = LifecycleTestSupport.plan(Map.of("planKey", "second", "name", "Second"));
+      var identity = new com.kingsrook.qqq.backend.core.jobs.plans.JobChunkScope.ChunkIdentity(43, 9, 0, "backupRunPlan");
+      try(var scope = com.kingsrook.qqq.backend.core.jobs.plans.JobChunkScope.open(null, null, identity))
+      {
+         org.assertj.core.api.Assertions.assertThatThrownBy(() -> new BackupRunCoordinator().runPlan(requested, "MANUAL"))
+            .isInstanceOf(com.kingsrook.qqq.backend.core.exceptions.QException.class).hasMessageContaining("could not start");
+      }
+      assertThat(catalog.queuedRuns()).isEmpty();
+      assertThat(catalog.where(BackupsTables.RUN, "runKey", "job-43-plan-" + requested.getValueInteger("id")))
+         .singleElement().satisfies(run -> assertThat(run.getValueString("status")).isEqualTo("FAILED"));
+   }
+
 }

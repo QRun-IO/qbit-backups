@@ -47,6 +47,8 @@ import com.kingsrook.qbits.backups.storage.BackupStorageException;
 import com.kingsrook.qbits.backups.storage.StoredObjectInfo;
 import com.kingsrook.qqq.backend.core.context.QContext;
 import com.kingsrook.qqq.backend.core.exceptions.QException;
+import com.kingsrook.qqq.backend.core.jobs.plans.JobChunkScope;
+import com.kingsrook.qqq.backend.core.jobs.plans.JobInterruptedException;
 import com.kingsrook.qqq.backend.core.logging.QLogger;
 import com.kingsrook.qqq.backend.core.model.data.QRecord;
 import com.kingsrook.qqq.backend.core.model.metadata.QInstance;
@@ -153,6 +155,10 @@ public class BackupVerifier
          }
          status = findings.status();
       }
+      catch(JobInterruptedException e)
+      {
+         throw (e);
+      }
       catch(VerifyException | BackupStorageException | QException e)
       {
          status = "ERROR";
@@ -188,7 +194,7 @@ public class BackupVerifier
    /*******************************************************************************
     ** STORAGE level: head every object, including every file-store object.
     *******************************************************************************/
-   void storageLevel(RunBundle bundle, VerifyFindings findings)
+   void storageLevel(RunBundle bundle, VerifyFindings findings) throws QException
    {
       BackupManifest manifest = bundle.manifest();
       BackupStorage  storage  = bundle.storage();
@@ -199,6 +205,7 @@ public class BackupVerifier
 
       for(BackupManifest.TableEntry table : manifest.tables())
       {
+         JobChunkScope.checkBetweenPages();
          for(BackupManifest.Part part : table.parts() == null ? List.<BackupManifest.Part>of() : table.parts())
          {
             findings.objectsChecked++;
@@ -231,6 +238,7 @@ public class BackupVerifier
       int missingFiles = 0;
       for(RunBundle.FileIndexEntry entry : bundle.distinctStoredFiles(findings))
       {
+         JobChunkScope.checkBetweenPages();
          findings.objectsChecked++;
          findings.filesChecked++;
          Optional<StoredObjectInfo> head = storage.head(entry.casKey());
@@ -262,6 +270,7 @@ public class BackupVerifier
 
       for(BackupManifest.TableEntry entry : manifest.tables())
       {
+         JobChunkScope.checkBetweenPages();
          QTableMetaData table = qInstance.getTable(entry.name());
          JsonlRowCodec  codec = null;
          boolean        roundTrip = false;
@@ -291,7 +300,7 @@ public class BackupVerifier
    /*******************************************************************************
     ** All parts of one table.
     *******************************************************************************/
-   private void verifyTable(RunBundle bundle, BackupManifest.TableEntry entry, JsonlRowCodec codec, boolean roundTrip, VerifyFindings findings)
+   private void verifyTable(RunBundle bundle, BackupManifest.TableEntry entry, JsonlRowCodec codec, boolean roundTrip, VerifyFindings findings) throws QException
    {
       MessageDigest rowsDigest = HashingOutputStream.newSha256();
       long          rows       = 0;
@@ -339,6 +348,11 @@ public class BackupVerifier
          }
          catch(QException e)
          {
+            JobInterruptedException interrupted = JobInterruptedException.find(e);
+            if(interrupted != null)
+            {
+               throw (interrupted);
+            }
             findings.mismatch("The part " + part.key() + " could not be read: " + e.getMessage());
          }
       }
@@ -451,6 +465,7 @@ public class BackupVerifier
 
       for(RunBundle.FileIndexEntry entry : bundle.distinctStoredFiles(findings))
       {
+         JobChunkScope.checkBetweenPages();
          QRecord fileObject = catalog.where(BackupsTables.FILE_OBJECT, "sha256", entry.sha256()).stream().filter(r -> r.getValue("deletedDate") == null).findFirst().orElse(null);
          if(fileObject != null && "PASSED".equals(fileObject.getValueString("lastVerifyStatus"))
             && fileObject.getValueInstant("lastVerifiedDate") != null && fileObject.getValueInstant("lastVerifiedDate").isAfter(cutoff))
