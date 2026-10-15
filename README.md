@@ -10,7 +10,7 @@
 ## Requirements
 
 - Java 21.
-- QQQ 4.1 (targets `4.1.0-RC.6`, not yet released).
+- QQQ `4.1.0-RC.7` or later.
 
 ## Install
 
@@ -40,14 +40,20 @@ Follow the QQQ [adoption checklist](https://github.com/QRun-IO/qqq/blob/develop/
 ./mvnw verify
 ```
 
-Before RC.6 is released, verify against the locally installed core build only:
+See [the RC.6 migration notes](docs/RC6-MIGRATION.md) for fingerprint compatibility,
+paging guarantees and restore permissions.
 
-```bash
-./mvnw -B verify -Dqqq.snapshot.version=4.1.0-ARCHRC6-SNAPSHOT
-```
+## In-app help
 
-The POM stays on RC.6. See [the RC.6 migration notes](docs/RC6-MIGRATION.md) for
-fingerprint compatibility, paging guarantees and restore permissions.
+The producer registers [help/qbit-backups.yaml](src/main/resources/help/qbit-backups.yaml)
+as a QBIT bundle. Hosts can register a `layer: HOST` bundle with matching entry keys
+and roles to override its text. Core's help startup sync applies the bundle when the
+host installs the help content table; registration also works without that table.
+
+`BackupPlanScheduleTest` checks coverage with `HelpBundleAssertions`, including
+live references and optional scheduler processes. `BackupsTablesGuardrailTest`
+checks empty-state, widget and possible-value-source coverage. Run it with
+`./mvnw verify`. Keep the bundle's literal version aligned with the POM version.
 
 Always use the Maven wrapper (Maven 3.9.11); Maven 3.10 cannot read the parent POM.
 

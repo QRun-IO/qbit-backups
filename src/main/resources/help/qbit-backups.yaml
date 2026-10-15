@@ -1,58 +1,782 @@
 bundle: qbit-backups
-version: 1
+version: 0.1.0-SNAPSHOT
 layer: QBIT
-# Help for the Backups app and every backups_* table, in the QQQ help-bundle format
-# (qqq#1198). Each table entry says what the table is for and how its rows get
-# created, so an empty table explains itself. BackupsHelp applies it until the core
-# HelpBundles registry ships in a QQQ release (STAND-IN(core=#1198)).
-# Summaries stay under 120 characters (BackupsTablesGuardrailTest).
 entries:
-  - key: app:backups;slot:help
-    summary: "Back up, verify and restore the application's data to S3-compatible storage."
-    content: |
-      The Setup card on the home lists what a working backup needs (a plan, a storage bucket, a schedule, verification) with the next step for each. A new installation has no plan: run Create default plan on Backup plans, which asks only for the storage bucket alias, or add a plan with New. Everything else (runs, artifacts, verifications, restores) is written by the backups themselves.
+- key: table:backups_plan;field:name
+  summary: 'The display name of the backup plan.'
+- key: table:backups_plan;field:description
+  summary: 'Your notes about the purpose and coverage of this plan.'
+- key: table:backups_plan;field:planKey
+  summary: 'A stable short name used in the storage paths of this plan’s backups.'
+  content: |
+    Choose a stable lowercase name using letters, digits, dashes or underscores, within {{maxLength:backups_plan.planKey}} characters. This name becomes part of stored object paths. It cannot change after the plan has run. If you need a different storage identity, create another plan and keep the existing plan and its run history available for recovery.
+- key: table:backups_plan;field:isActive
+  summary: 'Whether this plan is active for scheduled execution.'
+- key: table:backups_plan;field:scopeType
+  summary: 'How this plan selects the data to back up.'
+  content: |
+    Scope and table roles control which data a plan selects. Use **Backup Plan Scope** rules to include or exclude particular targets and narrow records when needed. Review the resolved selection with **Run backup now** before continuing, especially after application metadata changes. Excluded data will not be available from this backup even if the run itself completes successfully.
+- key: table:backups_plan;field:includeRoles
+  summary: 'The comma-separated table roles included by the plan.'
+  content: |
+    Scope and table roles control which data a plan selects. Use **Backup Plan Scope** rules to include or exclude particular targets and narrow records when needed. Review the resolved selection with **Run backup now** before continuing, especially after application metadata changes. Excluded data will not be available from this backup even if the run itself completes successfully.
+- key: table:backups_plan;field:pruneBucketAlias
+  summary: 'The storage connection alias used when removing expired backups.'
+  content: |
+    This alias selects the configured storage access used for pruning. It can separate deletion access from the destination used to write backups. Enter a storage alias rather than connection credentials, and check it before requesting retention cleanup. **Prune per retention** previews proposed deletions; locked objects and retained backups remain subject to their protection rules.
+- key: table:backups_plan;field:prefix
+  summary: 'The storage path prefix under which this plan writes backups.'
+- key: table:backups_plan;field:critical
+  summary: 'Whether this plan is marked as critical for backup monitoring.'
+  content: |
+    Monitoring compares successful backup and verification history with the plan’s expected ages. Use the health result to decide which **Backup Run** or **Verification** to inspect. A recent run can still need verification, and a failed run can leave an older successful backup in place. Adjust expectations to your recovery needs rather than treating a changed threshold as a repair.
+- key: table:backups_plan;field:format
+  summary: 'The file format used for exported table records.'
+  content: |
+    The default is {{default:backups_plan.format}} and the metadata choices are {{values:backups_format}}. JSONL supports structured record content, while CSV provides a tabular representation; both can be requested together. Parquet is listed but is not implemented in this version and is rejected by validation. Review the backup’s artifacts afterward to see the files actually produced.
+- key: table:backups_plan;field:compression
+  summary: 'The compression applied to exported backup data.'
+  content: |
+    The default is {{default:backups_plan.compression}} and the metadata choices are {{values:backups_compression}}. Use GZIP to compress exported data or NONE to leave it uncompressed. ZSTD is listed but is not implemented in this version. Compare raw and stored byte counts on **Backup Run** or **Artifacts** when assessing the resulting storage size.
+- key: table:backups_plan;field:encryptionMode
+  summary: 'The encryption mode requested for backup content.'
+  content: |
+    Review these settings together before including sensitive data. Encryption support depends on the configured backup implementation; unsupported client encryption is rejected. A key reference names a key and must never contain its value. Encrypted-only inclusion requires client encryption, while including sensitive fields in the clear requires backup administrator permission. Check the preview and validation messages before running the plan.
+- key: table:backups_plan;field:encryptionKeyRef
+  summary: 'The name of the encryption key to resolve, never the key value.'
+  content: |
+    Review these settings together before including sensitive data. Encryption support depends on the configured backup implementation; unsupported client encryption is rejected. A key reference names a key and must never contain its value. Encrypted-only inclusion requires client encryption, while including sensitive fields in the clear requires backup administrator permission. Check the preview and validation messages before running the plan.
+- key: table:backups_plan;field:sensitiveFieldPolicy
+  summary: 'How fields marked sensitive are handled in this backup.'
+  content: |
+    Review these settings together before including sensitive data. Encryption support depends on the configured backup implementation; unsupported client encryption is rejected. A key reference names a key and must never contain its value. Encrypted-only inclusion requires client encryption, while including sensitive fields in the clear requires backup administrator permission. Check the preview and validation messages before running the plan.
+- key: table:backups_plan;field:heavyFieldPolicy
+  summary: 'How large field values are included or omitted in this backup.'
+  content: |
+    Choose how large field values should be represented in the backup. The default is {{default:backups_plan.heavyFieldPolicy}} and the configured choices are {{values:backups_heavy_policy}}. Including values inline, placing them in separate objects and excluding them have different recovery implications. Review the resulting artifacts and verify a backup before relying on it to recover records with large content.
+- key: table:backups_plan;field:fileObjectPolicy
+  summary: 'Whether referenced files are copied or only referenced in the backup.'
+  content: |
+    File handling is separate from exporting database records. Copying referenced files keeps their content with the backup; reference-only handling does not make an independent copy. The missing-file policy determines whether an unavailable source file produces a warning or fails the run. Check copied and missing file counts on **Backup Run**, and verify media recovery as well as record recovery.
+- key: table:backups_plan;field:fileMissingPolicy
+  summary: 'Whether a missing referenced file warns or fails the backup.'
+  content: |
+    File handling is separate from exporting database records. Copying referenced files keeps their content with the backup; reference-only handling does not make an independent copy. The missing-file policy determines whether an unavailable source file produces a warning or fails the run. Check copied and missing file counts on **Backup Run**, and verify media recovery as well as record recovery.
+- key: table:backups_plan;field:consistency
+  summary: 'The requested consistency of reads across the backed-up data.'
+  content: |
+    The default is {{default:backups_plan.consistency}} and the available requests are {{values:backups_consistency}}. A shared snapshot helps keep related records consistent while the application changes. Support depends on the source backend. After a run, inspect **{{label:backups_run.consistencyAchieved}}** rather than assuming the requested level was achieved. Review warnings before relying on the backup for recovery.
+- key: table:backups_plan;field:useReadReplica
+  summary: 'Read replica requests are unavailable and are rejected when you save the plan.'
+- key: table:backups_plan;field:incrementalMode
+  summary: 'Whether the plan requests a full backup or changed records only.'
+  content: |
+    The default is {{default:backups_plan.incrementalMode}}. This version supports full backups; requesting only records changed since the previous backup is rejected by validation. Keep the plan on the supported full mode and use scope rules when you need to limit selected data. Review **Backup Run** and its artifacts to confirm the resulting coverage.
+- key: table:backups_plan;field:nativeDump
+  summary: 'The native database dump mode requested in addition to logical data.'
+  content: |
+    The default is {{default:backups_plan.nativeDump}}. Native database dumps are not implemented in this version, so selecting a native dump mode is rejected. Use the supported logical backup formats to save table records and referenced files. Those backups have their own manifests, verification and restore workflow; do not assume they contain a database-engine dump.
+- key: table:backups_plan;field:cronTimeZoneId
+  summary: 'The time zone used to interpret this plan’s schedule.'
+- key: table:backups_plan;field:scheduledJobId
+  summary: 'An unused legacy scheduler reference; you do not need to set it.'
+- key: table:backups_plan;field:slaHours
+  summary: 'The maximum expected age of a successful backup, in hours.'
+  content: |
+    Monitoring compares successful backup and verification history with the plan’s expected ages. Use the health result to decide which **Backup Run** or **Verification** to inspect. A recent run can still need verification, and a failed run can leave an older successful backup in place. Adjust expectations to your recovery needs rather than treating a changed threshold as a repair.
+- key: table:backups_plan;field:verifySlaDays
+  summary: 'The maximum expected age of a verified backup, in days.'
+  content: |
+    Monitoring compares successful backup and verification history with the plan’s expected ages. Use the health result to decide which **Backup Run** or **Verification** to inspect. A recent run can still need verification, and a failed run can leave an older successful backup in place. Adjust expectations to your recovery needs rather than treating a changed threshold as a repair.
+- key: table:backups_plan;field:verifyFileSamplePercent
+  summary: 'The percentage of referenced files selected for verification.'
+  content: |
+    Verification has its own depth, file selection and schedule. Checking stored objects is different from comparing decoded content or testing a restore. Review **Verification** to see which level actually ran and what it checked. Scheduling depends on the host integration; a saved expression alone is not evidence of a completed check. Use **Verify backup** for a direct content check.
+- key: table:backups_plan;field:verifyCronExpression
+  summary: 'The schedule expression for automatic verification.'
+  content: |
+    Verification has its own depth, file selection and schedule. Checking stored objects is different from comparing decoded content or testing a restore. Review **Verification** to see which level actually ran and what it checked. Scheduling depends on the host integration; a saved expression alone is not evidence of a completed check. Use **Verify backup** for a direct content check.
+- key: table:backups_plan;field:verifyLevel
+  summary: 'The depth of checking requested for automatic verification.'
+  content: |
+    Verification has its own depth, file selection and schedule. Checking stored objects is different from comparing decoded content or testing a restore. Review **Verification** to see which level actually ran and what it checked. Scheduling depends on the host integration; a saved expression alone is not evidence of a completed check. Use **Verify backup** for a direct content check.
+- key: table:backups_plan;field:retainDaily
+  summary: 'The number of daily backup periods retained by pruning.'
+  content: |
+    Retention selects backups to keep across daily, weekly, monthly and yearly periods, with a minimum number protected from pruning. Changing these settings does not itself prove which objects will be deleted. Use **Prune per retention** and review its proposed deletions before continuing. Storage locks can prevent deletion even when a backup falls outside the requested retention periods.
+- key: table:backups_plan;field:retainWeekly
+  summary: 'The number of weekly backup periods retained by pruning.'
+  content: |
+    Retention selects backups to keep across daily, weekly, monthly and yearly periods, with a minimum number protected from pruning. Changing these settings does not itself prove which objects will be deleted. Use **Prune per retention** and review its proposed deletions before continuing. Storage locks can prevent deletion even when a backup falls outside the requested retention periods.
+- key: table:backups_plan;field:retainMonthly
+  summary: 'The number of monthly backup periods retained by pruning.'
+  content: |
+    Retention selects backups to keep across daily, weekly, monthly and yearly periods, with a minimum number protected from pruning. Changing these settings does not itself prove which objects will be deleted. Use **Prune per retention** and review its proposed deletions before continuing. Storage locks can prevent deletion even when a backup falls outside the requested retention periods.
+- key: table:backups_plan;field:retainYearly
+  summary: 'The number of yearly backup periods retained by pruning.'
+  content: |
+    Retention selects backups to keep across daily, weekly, monthly and yearly periods, with a minimum number protected from pruning. Changing these settings does not itself prove which objects will be deleted. Use **Prune per retention** and review its proposed deletions before continuing. Storage locks can prevent deletion even when a backup falls outside the requested retention periods.
+- key: table:backups_plan;field:retainMinimum
+  summary: 'The minimum number of successful backups protected from pruning.'
+  content: |
+    Retention selects backups to keep across daily, weekly, monthly and yearly periods, with a minimum number protected from pruning. Changing these settings does not itself prove which objects will be deleted. Use **Prune per retention** and review its proposed deletions before continuing. Storage locks can prevent deletion even when a backup falls outside the requested retention periods.
+- key: table:backups_plan;field:objectLockMode
+  summary: 'The storage retention-lock mode requested for backup objects.'
+  content: |
+    Object locking asks the storage service to protect backup objects from deletion for the specified period. The selected destination must support locking, and a non-disabled mode requires a duration. These protections can prevent pruning from removing objects. Use **Test destination** to inspect capability information and review the retention requirements before choosing a locked destination.
+- key: table:backups_plan;field:objectLockDays
+  summary: 'How many days backup objects should remain locked in storage.'
+  content: |
+    Object locking asks the storage service to protect backup objects from deletion for the specified period. The selected destination must support locking, and a non-disabled mode requires a duration. These protections can prevent pruning from removing objects. Use **Test destination** to inspect capability information and review the retention requirements before choosing a locked destination.
+- key: table:backups_plan;field:maxDurationMinutes
+  summary: 'The configured backup duration limit in minutes.'
+- key: table:backups_plan;field:pageSize
+  summary: 'The number of records requested per backup read page.'
+- key: table:backups_plan;field:targetPartBytes
+  summary: 'The target size in bytes for each exported data part.'
+- key: table:backups_plan;field:ownerUserId
+  summary: 'The user whose access is checked for this plan’s scheduled backups.'
+  content: |
+    Scheduled backups check that the plan owner can read the selected tables. An active plan can run with broad data access, so saving an active plan requires backup administrator permission. Keep the owner and scope aligned as access changes. If scheduling reports an invalid owner, correct the owner or permissions and inspect **Backup Run** for subsequent results.
+- key: table:backups_plan;field:lastRunId
+  summary: 'The latest backup run associated with this plan.'
+- key: table:backups_plan;field:lastSuccessRunId
+  summary: 'The latest successful backup run for this plan.'
+- key: table:backups_plan;field:lastSuccessDate
+  summary: 'When this plan last completed a successful backup.'
+- key: table:backups_plan;field:lastVerifiedRunId
+  summary: 'The most recently verified backup run for this plan.'
+- key: table:backups_plan;field:lastVerifiedDate
+  summary: 'When a backup for this plan was last verified.'
+- key: table:backups_plan;field:slaStatus
+  summary: 'The current assessment of this plan’s backup health and timeliness.'
+  content: |
+    Monitoring compares successful backup and verification history with the plan’s expected ages. Use the health result to decide which **Backup Run** or **Verification** to inspect. A recent run can still need verification, and a failed run can leave an older successful backup in place. Adjust expectations to your recovery needs rather than treating a changed threshold as a repair.
+- key: table:backups_plan_scope;field:backupPlanId
+  summary: 'The backup plan this scope rule belongs to.'
+- key: table:backups_plan_scope;field:action
+  summary: 'Whether matching data is included in or excluded from the plan.'
+- key: table:backups_plan_scope;field:selectorType
+  summary: 'Whether the selector identifies a table, application, component or table role.'
+  content: |
+    Use these settings to describe the data matched by this scope rule. The selector identifies a target; a structured filter can narrow its records, child inclusion can expand related records, and exclusions omit fields. Review the resolved result through **Run backup now** before continuing. A successful backup cannot recover records or fields that its scope left out.
+- key: table:backups_plan_scope;field:selectorValue
+  summary: 'The name matched by the chosen selector type.'
+  content: |
+    Use these settings to describe the data matched by this scope rule. The selector identifies a target; a structured filter can narrow its records, child inclusion can expand related records, and exclusions omit fields. Review the resolved result through **Run backup now** before continuing. A successful backup cannot recover records or fields that its scope left out.
+- key: table:backups_plan_scope;field:filterJson
+  summary: 'A structured record filter that narrows the selected data.'
+  content: |
+    Use these settings to describe the data matched by this scope rule. The selector identifies a target; a structured filter can narrow its records, child inclusion can expand related records, and exclusions omit fields. Review the resolved result through **Run backup now** before continuing. A successful backup cannot recover records or fields that its scope left out.
+- key: table:backups_plan_scope;field:includeAssociatedChildren
+  summary: 'Whether the selection also follows associated child records.'
+  content: |
+    Use these settings to describe the data matched by this scope rule. The selector identifies a target; a structured filter can narrow its records, child inclusion can expand related records, and exclusions omit fields. Review the resolved result through **Run backup now** before continuing. A successful backup cannot recover records or fields that its scope left out.
+- key: table:backups_plan_scope;field:fieldExclusions
+  summary: 'The fields to omit from data selected by this scope rule.'
+  content: |
+    Use these settings to describe the data matched by this scope rule. The selector identifies a target; a structured filter can narrow its records, child inclusion can expand related records, and exclusions omit fields. Review the resolved result through **Run backup now** before continuing. A successful backup cannot recover records or fields that its scope left out.
+- key: table:backups_run;field:backupPlanId
+  summary: 'The plan that produced this backup.'
+- key: table:backups_run;field:runKey
+  summary: 'The unique storage reference for this backup execution.'
+- key: table:backups_run;field:trigger
+  summary: 'What caused this backup to run.'
+- key: table:backups_run;field:requestedByUserId
+  summary: 'The user who requested this operation.'
+- key: table:backups_run;field:status
+  summary: 'The recorded progress or final state of this operation.'
+  content: |
+    The run states are {{values:backups_run_status}}. Check the state alongside completed table counts, warnings and errors. A run that succeeded with warnings needs review, especially if referenced files were missing. Completion and verification are separate: inspect **Verification** before relying on the saved content. A cancellation request can take time to reach a final state.
+- key: table:backups_run;field:startDate
+  summary: 'When this operation started.'
+- key: table:backups_run;field:endDate
+  summary: 'When this operation ended.'
+- key: table:backups_run;field:durationMs
+  summary: 'The elapsed backup time in milliseconds.'
+- key: table:backups_run;field:heartbeatDate
+  summary: 'When the running backup last reported activity.'
+- key: table:backups_run;field:tablesPlanned
+  summary: 'The number of tables selected for this backup.'
+- key: table:backups_run;field:tablesDone
+  summary: 'The number of tables completed by this backup.'
+- key: table:backups_run;field:rowsTotal
+  summary: 'The total number of records exported.'
+- key: table:backups_run;field:bytesRaw
+  summary: 'The data size in bytes before storage encoding.'
+- key: table:backups_run;field:bytesStored
+  summary: 'The data size in bytes as stored.'
+- key: table:backups_run;field:filesReferenced
+  summary: 'The number of referenced files encountered during the backup.'
+- key: table:backups_run;field:filesCopied
+  summary: 'The number of files copied into backup storage.'
+- key: table:backups_run;field:filesDeduplicated
+  summary: 'The number of files whose existing backup copies were reused.'
+- key: table:backups_run;field:filesMissing
+  summary: 'The number of referenced files that could not be found.'
+- key: table:backups_run;field:fileBytesCopied
+  summary: 'The total bytes of file content copied into backup storage.'
+- key: table:backups_run;field:fileBytesReferenced
+  summary: 'The total bytes of file content referenced by this backup.'
+- key: table:backups_run;field:consistencyAchieved
+  summary: 'The read consistency actually achieved by this run.'
+  content: |
+    These values describe the saved backup rather than the current plan. The manifest records content and integrity information, while consistency and security scope describe how records were read. Use them when comparing backup coverage or investigating **Verification** failures. A user-selected export can contain fewer records than a broader scheduled plan because the user’s record access still applies.
+- key: table:backups_run;field:snapshotId
+  summary: 'The database snapshot identifier recorded for this backup.'
+- key: table:backups_run;field:storageBucketAlias
+  summary: 'The configured storage alias holding this backup content.'
+- key: table:backups_run;field:runPrefix
+  summary: 'The storage path prefix for this run’s objects.'
+- key: table:backups_run;field:manifestKey
+  summary: 'The storage path of the manifest describing this backup.'
+  content: |
+    These values describe the saved backup rather than the current plan. The manifest records content and integrity information, while consistency and security scope describe how records were read. Use them when comparing backup coverage or investigating **Verification** failures. A user-selected export can contain fewer records than a broader scheduled plan because the user’s record access still applies.
+- key: table:backups_run;field:manifestSha256
+  summary: 'The checksum used to identify and check the backup manifest.'
+  content: |
+    These values describe the saved backup rather than the current plan. The manifest records content and integrity information, while consistency and security scope describe how records were read. Use them when comparing backup coverage or investigating **Verification** failures. A user-selected export can contain fewer records than a broader scheduled plan because the user’s record access still applies.
+- key: table:backups_run;field:qqqVersion
+  summary: 'The framework version recorded when this backup was made.'
+- key: table:backups_run;field:appVersion
+  summary: 'The application version recorded when this backup was made.'
+- key: table:backups_run;field:instanceName
+  summary: 'The application instance from which the backup was made.'
+- key: table:backups_run;field:schemaFingerprint
+  summary: 'A fingerprint of the data structure recorded in the backup.'
+  content: |
+    These values describe the saved backup rather than the current plan. The manifest records content and integrity information, while consistency and security scope describe how records were read. Use them when comparing backup coverage or investigating **Verification** failures. A user-selected export can contain fewer records than a broader scheduled plan because the user’s record access still applies.
+- key: table:backups_run;field:securityScope
+  summary: 'Whether the backup reflects user-limited access or a broader plan execution.'
+  content: |
+    These values describe the saved backup rather than the current plan. The manifest records content and integrity information, while consistency and security scope describe how records were read. Use them when comparing backup coverage or investigating **Verification** failures. A user-selected export can contain fewer records than a broader scheduled plan because the user’s record access still applies.
+- key: table:backups_run;field:encryptionKeyRef
+  summary: 'The key reference recorded for the backup, without the key value.'
+- key: table:backups_run;field:encryptionKeyFingerprint
+  summary: 'A fingerprint identifying the encryption key without exposing it.'
+- key: table:backups_run;field:retentionClass
+  summary: 'The retention period category assigned to this backup.'
+- key: table:backups_run;field:lockedUntil
+  summary: 'The time until which storage retention protects this content from deletion.'
+- key: table:backups_run;field:prunedDate
+  summary: 'When this backup was pruned from storage.'
+- key: table:backups_run;field:prunedByUserId
+  summary: 'The user recorded as pruning this backup.'
+- key: table:backups_run;field:verificationStatus
+  summary: 'The latest recorded level and outcome of verification for this backup.'
+  content: |
+    The recorded states are {{values:backups_verification_status}}. Storage checks, content checks and test restores provide different evidence; a storage-only result does not establish that every record can be restored. Open the related **Verification** for its level, counts and diagnostics. This status describes checking after backup creation and is separate from the backup run’s own completion status.
+- key: table:backups_run;field:warningCount
+  summary: 'The number of warnings recorded during the backup.'
+- key: table:backups_run;field:errorMessage
+  summary: 'The error message recorded for this operation.'
+- key: table:backups_run;field:errorDetail
+  summary: 'Additional error information recorded for the failed backup.'
+- key: table:backups_artifact;field:backupRunId
+  summary: 'The backup run this record belongs to.'
+- key: table:backups_artifact;field:artifactType
+  summary: 'The kind of backup content stored in this artifact.'
+- key: table:backups_artifact;field:tableName
+  summary: 'The source table described by this record.'
+- key: table:backups_artifact;field:partNumber
+  summary: 'The sequence number of this part within the exported table data.'
+- key: table:backups_artifact;field:objectKey
+  summary: 'The path identifying the object within its storage bucket.'
+- key: table:backups_artifact;field:format
+  summary: 'The format recorded for this artifact’s content.'
+- key: table:backups_artifact;field:compression
+  summary: 'The compression recorded for this artifact’s content.'
+- key: table:backups_artifact;field:encrypted
+  summary: 'Whether this stored object is recorded as encrypted.'
+- key: table:backups_artifact;field:rowCount
+  summary: 'The number of records written to this artifact.'
+- key: table:backups_artifact;field:bytesRaw
+  summary: 'The data size in bytes before storage encoding.'
+- key: table:backups_artifact;field:bytesStored
+  summary: 'The data size in bytes as stored.'
+- key: table:backups_artifact;field:sha256Stored
+  summary: 'The checksum of the bytes as stored in the bucket.'
+- key: table:backups_artifact;field:sha256Raw
+  summary: 'The checksum of the content before storage encoding.'
+- key: table:backups_artifact;field:rowsHash
+  summary: 'The checksum representing the exported records.'
+- key: table:backups_artifact;field:firstKey
+  summary: 'The first record key recorded for this data part.'
+- key: table:backups_artifact;field:lastKey
+  summary: 'The last record key recorded for this data part.'
+- key: table:backups_artifact;field:tableFingerprint
+  summary: 'A fingerprint of the table structure used by this artifact.'
+- key: table:backups_artifact;field:status
+  summary: 'The recorded progress or final state of this operation.'
+- key: table:backups_artifact;field:storageVersionId
+  summary: 'The storage service’s version identifier for the saved object.'
+- key: table:backups_verification;field:backupRunId
+  summary: 'The backup run this record belongs to.'
+- key: table:backups_verification;field:level
+  summary: 'The depth of verification performed on this backup.'
+  content: |
+    The levels are {{values:backups_verify_level}}. Storage verification checks saved objects, content verification reads and compares backup data, and a test restore exercises recovery in a temporary destination. Review the result and detail to see what actually passed. A deeper check can provide more recovery evidence, but the level alone does not mean the check succeeded.
+- key: table:backups_verification;field:trigger
+  summary: 'What caused this verification to run.'
+- key: table:backups_verification;field:requestedByUserId
+  summary: 'The user who requested this operation.'
+- key: table:backups_verification;field:startDate
+  summary: 'When this operation started.'
+- key: table:backups_verification;field:endDate
+  summary: 'When this operation ended.'
+- key: table:backups_verification;field:status
+  summary: 'The recorded progress or final state of this operation.'
+  content: |
+    The possible results are {{values:backups_verify_result}}. Review the level, mismatch count and details together with the result. A check can pass with warnings or fail before completing all planned work. Use the linked **Backup Run** and its artifacts to investigate; changing a plan’s settings does not repair the stored content of an earlier backup.
+- key: table:backups_verification;field:tablesChecked
+  summary: 'The number of tables examined during verification.'
+- key: table:backups_verification;field:rowsChecked
+  summary: 'The number of records examined during verification.'
+- key: table:backups_verification;field:mismatches
+  summary: 'The number of discrepancies found during verification.'
+- key: table:backups_verification;field:scratchTarget
+  summary: 'The temporary destination recorded for a test restore.'
+- key: table:backups_verification;field:detailJson
+  summary: 'The structured results and diagnostics from verification.'
+- key: table:backups_restore_run;field:sourceBackupRunId
+  summary: 'The backup run used as the source for recovery.'
+- key: table:backups_restore_run;field:requestedByUserId
+  summary: 'The user who requested this operation.'
+- key: table:backups_restore_run;field:startDate
+  summary: 'When this operation started.'
+- key: table:backups_restore_run;field:endDate
+  summary: 'When this operation ended.'
+- key: table:backups_restore_run;field:status
+  summary: 'The recorded progress or final state of this operation.'
+- key: table:backups_restore_run;field:mode
+  summary: 'How the restore handles new and existing destination records.'
+  content: |
+    Restore mode controls how destination records are handled, while matching and identifier strategy control how saved records connect to them. Review these choices before execution: replacement can delete existing records and requires explicit confirmation. This row records the choices made for that run. Inspect the table results and any pre-restore backup before responding to an unexpected recovery outcome.
+- key: table:backups_restore_run;field:idStrategy
+  summary: 'Whether original record identifiers are preserved or replaced during recovery.'
+  content: |
+    Restore mode controls how destination records are handled, while matching and identifier strategy control how saved records connect to them. Review these choices before execution: replacement can delete existing records and requires explicit confirmation. This row records the choices made for that run. Inspect the table results and any pre-restore backup before responding to an unexpected recovery outcome.
+- key: table:backups_restore_run;field:matchOn
+  summary: 'The key used to match saved records to destination records.'
+  content: |
+    Restore mode controls how destination records are handled, while matching and identifier strategy control how saved records connect to them. Review these choices before execution: replacement can delete existing records and requires explicit confirmation. This row records the choices made for that run. Inspect the table results and any pre-restore backup before responding to an unexpected recovery outcome.
+- key: table:backups_restore_run;field:targetInstanceName
+  summary: 'The application instance receiving the restored data.'
+- key: table:backups_restore_run;field:scopeSummary
+  summary: 'A description of the tables and records selected for recovery.'
+- key: table:backups_restore_run;field:preRestoreBackupRunId
+  summary: 'The backup taken of the destination before this restore.'
+- key: table:backups_restore_run;field:rowsInserted
+  summary: 'The number of records inserted by the restore.'
+- key: table:backups_restore_run;field:rowsUpdated
+  summary: 'The number of existing records updated by the restore.'
+- key: table:backups_restore_run;field:rowsUnchanged
+  summary: 'The number of matched records that needed no changes.'
+- key: table:backups_restore_run;field:rowsDeleted
+  summary: 'The number of records deleted by the restore.'
+- key: table:backups_restore_run;field:rowsSkipped
+  summary: 'The number of records skipped by the restore.'
+- key: table:backups_restore_run;field:rowsErrored
+  summary: 'The number of records that encountered restore errors.'
+- key: table:backups_restore_run;field:filesRestored
+  summary: 'The number of referenced files restored from backup storage.'
+- key: table:backups_restore_run;field:filesAlreadyPresent
+  summary: 'The number of files already present at the destination.'
+- key: table:backups_restore_run;field:filesConflicting
+  summary: 'The number of files that conflict with existing destination content.'
+- key: table:backups_restore_run;field:filesMissingFromBackup
+  summary: 'The number of required files absent from the backup.'
+- key: table:backups_restore_run;field:fileBytesRestored
+  summary: 'The total bytes of file content restored.'
+- key: table:backups_restore_run;field:sequencesResynced
+  summary: 'The number of automatic record-number sequences adjusted after recovery.'
+- key: table:backups_restore_run;field:automationsSuppressed
+  summary: 'Whether record automations were suppressed during this restore.'
+  content: |
+    These recorded flags explain whether restoring records was allowed to trigger automations or publish change events. Restore options normally suppress automations and do not publish events, but the selected options determine the actual run. Use these values when investigating missing or unexpected downstream activity, and inspect the **Restore Run** results before manually repeating any follow-up work.
+- key: table:backups_restore_run;field:esbSuppressed
+  summary: 'Whether change-event publication was suppressed during this restore.'
+  content: |
+    These recorded flags explain whether restoring records was allowed to trigger automations or publish change events. Restore options normally suppress automations and do not publish events, but the selected options determine the actual run. Use these values when investigating missing or unexpected downstream activity, and inspect the **Restore Run** results before manually repeating any follow-up work.
+- key: table:backups_restore_run;field:confirmationText
+  summary: 'The confirmation entered for a replacement restore.'
+  content: |
+    Restore mode controls how destination records are handled, while matching and identifier strategy control how saved records connect to them. Review these choices before execution: replacement can delete existing records and requires explicit confirmation. This row records the choices made for that run. Inspect the table results and any pre-restore backup before responding to an unexpected recovery outcome.
+- key: table:backups_restore_run;field:errorMessage
+  summary: 'The error message recorded for this operation.'
+- key: table:backups_restore_run_table;field:backupRestoreRunId
+  summary: 'The restore run this table result belongs to.'
+- key: table:backups_restore_run_table;field:tableName
+  summary: 'The source table described by this record.'
+- key: table:backups_restore_run_table;field:targetTableName
+  summary: 'The destination table that received the restored records.'
+- key: table:backups_restore_run_table;field:rowsInserted
+  summary: 'The number of records inserted by the restore.'
+- key: table:backups_restore_run_table;field:rowsUpdated
+  summary: 'The number of existing records updated by the restore.'
+- key: table:backups_restore_run_table;field:rowsUnchanged
+  summary: 'The number of matched records that needed no changes.'
+- key: table:backups_restore_run_table;field:rowsDeleted
+  summary: 'The number of records deleted by the restore.'
+- key: table:backups_restore_run_table;field:rowsSkipped
+  summary: 'The number of records skipped by the restore.'
+- key: table:backups_restore_run_table;field:rowsErrored
+  summary: 'The number of records that encountered restore errors.'
+- key: table:backups_restore_run_table;field:schemaStatus
+  summary: 'How the saved table structure compares with the destination structure.'
+  content: |
+    The comparison states are {{values:backups_schema_status}}. Differences can arise when the application’s fields change after a backup was taken. Review **{{label:backups_restore_run_table.unmappedFields}}** and the restore’s record counts before assuming all saved data was recovered. The recorded comparison concerns this table; inspect the parent **Restore Run** for the overall outcome and any errors.
+- key: table:backups_restore_run_table;field:unmappedFields
+  summary: 'The saved fields that could not be mapped to destination fields.'
+- key: table:backups_restore_run_table;field:sequenceResynced
+  summary: 'Whether automatic record numbering was adjusted for this table.'
+- key: table:backups_restore_run_table;field:status
+  summary: 'The recorded progress or final state of this operation.'
+- key: table:backups_file_object;field:sha256
+  summary: 'The checksum identifying this saved file’s content.'
+- key: table:backups_file_object;field:sizeBytes
+  summary: 'The file’s recorded size in bytes.'
+- key: table:backups_file_object;field:contentType
+  summary: 'The media type recorded for this file.'
+- key: table:backups_file_object;field:storageBucketAlias
+  summary: 'The configured storage alias holding this backup content.'
+- key: table:backups_file_object;field:objectKey
+  summary: 'The path identifying the object within its storage bucket.'
+- key: table:backups_file_object;field:encrypted
+  summary: 'Whether this stored object is recorded as encrypted.'
+- key: table:backups_file_object;field:encryptionKeyFingerprint
+  summary: 'A fingerprint identifying the encryption key without exposing it.'
+- key: table:backups_file_object;field:firstRunId
+  summary: 'The first backup run recorded as using this file.'
+- key: table:backups_file_object;field:lastReferencedRunId
+  summary: 'The latest backup run recorded as using this file.'
+- key: table:backups_file_object;field:referenceCount
+  summary: 'The number of backup references recorded for this file.'
+- key: table:backups_file_object;field:lastVerifiedDate
+  summary: 'When this file was last verified.'
+- key: table:backups_file_object;field:lastVerifyStatus
+  summary: 'The latest recorded verification outcome for this file.'
+- key: table:backups_file_object;field:lockedUntil
+  summary: 'The time until which storage retention protects this content from deletion.'
+- key: table:backups_file_object;field:deletedDate
+  summary: 'When this file’s deletion was recorded.'
+- key: table:backups_id_map;field:restoreRunId
+  summary: 'The restore run that assigned the new identifier.'
+- key: table:backups_id_map;field:tableName
+  summary: 'The table containing the remapped record.'
+- key: table:backups_id_map;field:oldId
+  summary: 'The record identifier in the source backup.'
+- key: table:backups_id_map;field:newId
+  summary: 'The record identifier assigned at the destination.'
+- key: process:backupRunPlan;slot:help
+  summary: 'Preview a backup plan’s scope and run it when you continue.'
+  content: |
+    Use **Run backup now** on a **Backup Plan** when you need a fresh copy before a change or want to check the plan. Review the resolved scope and any warnings first; nothing is written until you continue. The run writes its output to the configured destination and records progress in **Backup Run**. Inspect its result and verify the saved content before relying on it for recovery.
+- key: process:backupVerify;slot:help
+  summary: 'Check a backup’s stored content against its manifest.'
+  content: |
+    Use **Verify backup** on a **Backup Run** to check that its objects are present and their contents match the recorded backup. The content check reads stored bytes, decodes them and compares counts and checksums with the manifest. It records a **Verification** result without changing the backup. Review mismatches and warnings before using that run as a recovery source.
+- key: process:backupCheckSla;slot:help
+  summary: 'Check whether backup plans meet their freshness and verification expectations.'
+  content: |
+    This monitoring action checks backup health against each plan’s expected backup and verification ages. Use **Backup Plan** and the Backups home page to inspect its assessment, then open the latest **Backup Run** or **Verification** for the underlying evidence. A health problem may require a new run, a storage repair or investigation of a failed check rather than simply changing the monitoring threshold.
+- key: process:backupRestore;slot:help
+  summary: 'Preview and restore data from a saved backup run.'
+  content: |
+    Use **Restore...** on a **Backup Run** to recover its data. Choose the tables, matching rule, record handling and file options, then review the proposed changes. Nothing is written until you continue. Replacement mode can delete destination records and requires confirmation. Review the option to back up the target first. After execution, inspect **Restore Run** and its table results for skipped records, warnings or failures.
+- key: process:backupRestoreTable;slot:help
+  summary: 'Preview and restore table data from a selected backup artifact.'
+  content: |
+    Use the table restore action when you need data from a particular backup artifact rather than the entire run. Check the source table, destination, matching rule and restore mode in the options and review screen. Nothing is written until you continue. Replacement can remove destination data. Inspect **Restore Run** and its table results afterward to confirm which records and files were recovered.
+- key: process:backupImportCatalog;slot:help
+  summary: 'Find saved backups in storage and add their metadata to the local catalog.'
+  content: |
+    Use **Import backups from storage** when backup objects exist in storage but their run records are absent from this application. Enter the backup bucket alias and folder prefix, then review the discovered backups before continuing. This imports catalog information; it does not restore application records. Once imported, inspect **Backup Run**, verify the saved content and choose a restore action when needed.
+- key: process:backupDownload;slot:help
+  summary: 'Create download links for the stored artifacts of selected backup runs.'
+  content: |
+    Use **Download** when you need the files belonging to a backup run outside the application. Review the files offered before continuing to obtain their links. The action does not restore records or change the saved backup. Treat the downloaded content according to the data it contains, and use **Artifacts** or **Verification** when you need to inspect completeness and integrity.
+- key: process:backupDownloadArtifact;slot:help
+  summary: 'Create a download link for a selected backup artifact.'
+  content: |
+    Use the artifact download action when you need a particular stored part of a backup. Review the selected artifact and its related **Backup Run** so you know which table or supporting file you are retrieving. The action returns a download link and does not change application records. A single part may not contain everything needed for a complete restore.
+- key: process:backupRunScheduledPlan;slot:help
+  summary: 'Execute a backup plan on behalf of its configured schedule.'
+  content: |
+    This background action runs a plan when invoked by scheduling. It checks the plan owner before starting the backup and records the resulting **Backup Run**. Use the plan’s latest run and error information to investigate a missed or failed execution. For an interactive preview and manual start, use **Run backup now** on the plan instead.
+- key: process:backupCancelRun;slot:help
+  summary: 'Request cancellation of a backup run that is still in progress.'
+  content: |
+    Use **Cancel** on a running backup when it should stop. Review the selected runs before continuing. Cancellation is a request to the running process, so check **Backup Run** afterward for its final state. It does not turn partial output into a complete backup or undo a previous successful run. Use a successfully completed and verified backup for recovery.
+- key: process:backupCancelRestoreRun;slot:help
+  summary: 'Request cancellation of a restore that is still in progress.'
+  content: |
+    Use **Cancel** on a restore when further recovery work should stop. Review the selection and then check **Restore Run** for its final status and table results. Cancellation does not imply that records already changed have been rolled back. Inspect the counts and any target backup before deciding how to recover from a partially completed restore.
+- key: process:backupResumeRun;slot:help
+  summary: 'Preview where an interrupted backup can continue and resume eligible work.'
+  content: |
+    Use **Resume** on an interrupted backup when you want to continue eligible work from its recorded progress. Review the proposed continuation and any reasons the run cannot resume before proceeding. Nothing is written during the preview. After execution, inspect **Backup Run** and its artifacts, then verify the completed backup before treating it as a recovery source.
+- key: process:backupTestDestination;slot:help
+  summary: 'Check whether a plan’s configured backup storage can be used.'
+  content: |
+    Use **Test destination** after configuring a **Backup Plan** destination. After review, the test writes a small probe object, reads it back, lists it and deletes it. For a plan using object locking, it only reads and writes no probe. Review each check and the capability report. This tests destination access, not the integrity of an existing backup; use **Verify backup** for that.
+- key: process:backupPrune;slot:help
+  summary: 'Preview and delete backups that a plan’s retention rules no longer keep.'
+  content: |
+    Use **Prune per retention** on a **Backup Plan** to remove expired backup content. Review exactly what will be deleted before continuing; the preview deletes nothing. Retention periods, minimum retained backups and storage locks affect eligibility. Pruning removes recovery material, so review the retained backups and their verification results before proceeding. Inspect the run catalog afterward for the recorded pruning result.
+- key: process:backupPruneRuns;slot:help
+  summary: 'Apply retention pruning to the plans associated with selected backup runs.'
+  content: |
+    Use **Prune per retention** on selected runs to evaluate the retention rules of their plans. The action is not simply a command to delete each selected row. Review the proposed deletions before continuing. Minimum retention and storage locks can protect backups from deletion. Pruning removes saved recovery content, so inspect the backups that will remain and their verification results first.
+- key: widget:backupsHome;slot:label
+  summary: 'Backup plan health, recent runs and verification information.'
+- key: widget:backupsHealthCard;slot:label
+  summary: 'A summary of backup health and plans needing attention.'
+- key: widget:backupsPlanScopeJoinPlan;slot:label
+  summary: 'Inclusion and exclusion rules for this backup plan.'
+- key: widget:backupsRunJoinPlan;slot:label
+  summary: 'Backup runs produced by this plan.'
+- key: widget:backupsArtifactJoinRun;slot:label
+  summary: 'Stored artifacts belonging to this backup run.'
+- key: widget:backupsVerificationJoinRun;slot:label
+  summary: 'Verification checks performed on this backup run.'
+- key: widget:backupsRestoreRunJoinRun;slot:label
+  summary: 'Restore runs using this backup as their source.'
+- key: widget:backupsRestoreRunTableJoinRestoreRun;slot:label
+  summary: 'Per-table results for this restore run.'
 
-  - key: table:backups_plan;slot:help
-    summary: "A backup plan: what is backed up, where it goes, when it runs, how long it is kept and how it is verified."
-    content: |
-      **How rows get created:** an administrator adds one with New, or runs Create default plan, which adds "Nightly full" (the whole instance, data and audit tables, JSONL and gzip, every night at 02:00 UTC, verified on Sundays) and asks only for the storage bucket alias. The alias names a bucket your application provides to Backups; no key or endpoint is ever stored here. A plan with a cron expression runs on its own once it is active; Run backup now runs it by hand. A few settings (PARQUET, ZSTD, incremental, native dump, read replica) are not available yet and are refused when the plan is saved.
+- key: app:backups;slot:help
+  summary: "Back up, verify and restore the application's data to S3-compatible storage."
+  content: |
+    Use the **Setup** card on the home to review what a working backup needs (a plan, a storage bucket, a schedule, verification) with the next step for each. A new installation has no plan: run Create default plan on Backup plans, which asks only for the storage bucket alias, or add a plan with New. Everything else (runs, artifacts, verifications, restores) is written by the backups themselves.
 
-  - key: table:backups_plan_scope;slot:help
-    summary: "One include or exclude rule of a plan: an app, a qbit, a table or a table role."
-    content: |
-      **How rows get created:** an administrator adds them as Scope rules on a plan record. A plan whose scope is Instance backs up everything allowed by its roles and needs no rules; a plan limited to apps, qbits or tables is made of these rules, and an Exclude rule always wins over an Include.
+- key: table:backups_plan;slot:help
+  summary: "A backup plan: what is backed up, where it goes, when it runs, how long it is kept and how it is verified."
+  content: |
+    **How rows get created:** add a plan with **New**, or run **Create default plan**, which adds "Nightly full" (the whole instance, data and audit tables, JSONL and gzip, every night at 02:00 UTC, verified on Sundays) and asks only for the storage bucket alias. The alias names a bucket your application provides to Backups; no key or endpoint is ever stored here. With the scheduler integration installed, an active plan with a cron expression runs on schedule; Run backup now runs it by hand. A few settings (PARQUET, ZSTD, incremental, native dump, read replica) are not available yet and are refused when the plan is saved.
 
-  - key: table:backups_run;slot:help
-    summary: "One execution of a plan, or an ad-hoc export: its status, size, rows, files and storage location."
-    content: |
-      **How rows get created:** only the backups write it. Run backup now, a plan's schedule, a pre-restore safety backup, Resume and Import backups from storage each add a row. Nothing is added by hand; Verify backup, Download, Restore and Prune are actions on a run.
+- key: table:backups_plan_scope;slot:help
+  summary: "One include or exclude rule of a plan: an app, a qbit, a table or a table role."
+  content: |
+    **How rows get created:** add **Scope rules** on a plan record. A plan whose scope is Instance backs up everything allowed by its roles and needs no rules; a plan limited to apps, qbits or tables is made of these rules, and an Exclude rule always wins over an Include.
 
-  - key: table:backups_artifact;slot:help
-    summary: "One stored object of a run: a table part, its manifest, checksums or a file index, with its hash and size."
-    content: |
-      **How rows get created:** only the backups write it, one row per object a run stores. They appear as Artifacts on a run record, and Restore this table and Download work from here.
+- key: table:backups_run;slot:help
+  summary: "One execution of a plan, or an ad-hoc export: its status, size, rows, files and storage location."
+  content: |
+    **How rows get created:** only the backups write it. Run backup now, a plan's schedule, a pre-restore safety backup, Resume and Import backups from storage each add a row. Nothing is added by hand; Verify backup, Download, Restore and Prune are actions on a run.
 
-  - key: table:backups_verification;slot:help
-    summary: "The result of checking a backup: that it is in storage, that it decodes, or that it restores into scratch."
-    content: |
-      **How rows get created:** only verification writes it. Run Verify backup on a run (storage, content or test restore), or give a plan a verify cron expression so it verifies its latest backup on a schedule. The newest result also shows on the plan and the home.
+- key: table:backups_artifact;slot:help
+  summary: "One stored object of a run: a table part, its manifest, checksums or a file index, with its hash and size."
+  content: |
+    **How rows get created:** only the backups write it, one row per object a run stores. Open **Artifacts** on a run record to use **Restore this table** or **Download**.
 
-  - key: table:backups_restore_run;slot:help
-    summary: "One restore of a backup into the application: mode, id strategy, row and file counts and its safety backup."
-    content: |
-      **How rows get created:** only Restore writes it. Run Restore on a backup run, or Restore this table on an artifact: Review previews what would change before anything is written. A restore that replaces data takes a safety backup first and links it here.
+- key: table:backups_verification;slot:help
+  summary: "The result of checking a backup: that it is in storage, that it decodes, or that it restores into scratch."
+  content: |
+    **How rows get created:** only verification writes it. Run Verify backup on a run (storage, content or test restore), or give a plan a verify cron expression so it verifies its latest backup on a schedule. Inspect the newest result on the plan and the home.
 
-  - key: table:backups_restore_run_table;slot:help
-    summary: "Per-table results of a restore: rows inserted, updated and skipped and how the schema matched."
-    content: |
-      **How rows get created:** only Restore writes it, one row per table restored. They appear as Tables restored on a restore record.
+- key: table:backups_restore_run;slot:help
+  summary: "One restore of a backup into the application: mode, id strategy, row and file counts and its safety backup."
+  content: |
+    **How rows get created:** only Restore writes it. Run Restore on a backup run, or Restore this table on an artifact: Review previews what would change before anything is written. A restore that replaces data takes a safety backup first and links it here.
 
-  - key: table:backups_file_object;slot:help
-    summary: "The content-addressed store of copied files, shared by runs, with reference counts and verification."
-    content: |
-      **How rows get created:** only backups write it. When a plan copies the files its rows reference, each distinct file (by SHA-256) is stored once and every run that uses it adds a reference; Prune lowers the counts and removes a file when no run needs it.
+- key: table:backups_restore_run_table;slot:help
+  summary: "Per-table results of a restore: rows inserted, updated and skipped and how the schema matched."
+  content: |
+    **How rows get created:** only Restore writes it, one row per table restored. Open **Tables restored** on a restore record to inspect these results.
 
-  - key: table:backups_id_map;slot:help
-    summary: "Old id to new id pairs recorded while restoring with new ids, so related rows can be rewritten."
-    content: |
-      **How rows get created:** only Restore writes it, and only when a restore uses the Remap new ids strategy. The rows are working data for that restore and are cleared when it finishes, so this table is usually empty.
+- key: table:backups_file_object;slot:help
+  summary: "The content-addressed store of copied files, shared by runs, with reference counts and verification."
+  content: |
+    **How rows get created:** only backups write it. When a plan copies the files its rows reference, each distinct file (by SHA-256) is stored once and every run that uses it adds a reference; Prune lowers the counts and removes a file when no run needs it.
+
+- key: table:backups_id_map;slot:help
+  summary: "Old id to new id pairs recorded while restoring with new ids, so related rows can be rewritten."
+  content: |
+    **How rows get created:** only Restore writes it, and only when a restore uses the Remap new ids strategy. The rows are working data for that restore and are cleared when it finishes, so you will usually find this table empty.
+
+- key: table:backups_plan;field:storageBucketAlias
+  summary: The configured storage alias where you want this plan to write backups.
+  content: |
+    Enter the alias of a bucket your application provides to Backups, never credentials or an endpoint. Use **Test destination** to check access before running the plan. You can select a separate **Prune bucket alias** for deletion access.
+- key: table:backups_plan;field:cronExpression
+  summary: The schedule expression for running this plan automatically.
+  content: |
+    Set the schedule and **{{label:backups_plan.cronTimeZoneId}}** together. Your application must install the scheduler integration, and the plan must be active. Leave the expression blank for manual runs. Use **Run backup now** to preview and start a backup yourself.
+- key: process:backupsPlanCreateDefault;slot:help
+  summary: Create a starter backup plan for a storage bucket you choose.
+  content: |
+    Use **Create default plan** on **Backup plans** and enter a **Storage bucket alias** provided by your application. Review the proposed plan before continuing. The action adds **Nightly full** for data and audit tables with JSONL, gzip and copied files, scheduled at 02:00 UTC with content verification on Sundays at 04:00 UTC.
+
+    You can edit the settings afterward. The action creates a plan only when its plan key does not already exist; it does not change an existing plan. Scheduled execution requires your application's scheduler integration.
+- key: process:backupVerifyPlan;slot:help
+  summary: Verify the latest successful backup of a scheduled plan.
+  content: |
+    Use the plan's verification schedule and level to control automatic checks. This background action selects its latest successful backup and records the check in **Verification**. If no successful backup exists, there is nothing to verify. Inspect the plan and its latest verification result when investigating missed or failed checks.
+- key: process:*.backupExportTable;slot:help
+  summary: Preview and back up selected table records using your current access.
+  content: |
+    Use **Back up these records** to export records from a table. Review the selected scope before continuing; the preview writes nothing. Your record access applies to this export. The destination comes from the supplied storage alias or an active plan. Inspect the resulting **Backup Run** and verify it before relying on it for recovery.
+
+- key: possibleValueSource:backups_scope_type;slot:help
+  summary: The available scope type choices for backups.
+  content: |
+    You can see these choices: {{values:backups_scope_type}}. Check the related field help for supported settings and how the choice affects your backup or restore.
+
+- key: possibleValueSource:backups_table_role;slot:help
+  summary: The available table role choices for backups.
+  content: |
+    You can see these choices: {{values:backups_table_role}}. Check the related field help for supported settings and how the choice affects your backup or restore.
+
+- key: possibleValueSource:backups_scope_action;slot:help
+  summary: The available scope action choices for backups.
+  content: |
+    You can see these choices: {{values:backups_scope_action}}. Check the related field help for supported settings and how the choice affects your backup or restore.
+
+- key: possibleValueSource:backups_selector_type;slot:help
+  summary: The available selector type choices for backups.
+  content: |
+    You can see these choices: {{values:backups_selector_type}}. Check the related field help for supported settings and how the choice affects your backup or restore.
+
+- key: possibleValueSource:backups_format;slot:help
+  summary: The available format choices for backups.
+  content: |
+    You can see these choices: {{values:backups_format}}. Check the related field help for supported settings and how the choice affects your backup or restore.
+
+- key: possibleValueSource:backups_compression;slot:help
+  summary: The available compression choices for backups.
+  content: |
+    You can see these choices: {{values:backups_compression}}. Check the related field help for supported settings and how the choice affects your backup or restore.
+
+- key: possibleValueSource:backups_encryption_mode;slot:help
+  summary: The available encryption mode choices for backups.
+  content: |
+    You can see these choices: {{values:backups_encryption_mode}}. Check the related field help for supported settings and how the choice affects your backup or restore.
+
+- key: possibleValueSource:backups_sensitive_policy;slot:help
+  summary: The available sensitive policy choices for backups.
+  content: |
+    You can see these choices: {{values:backups_sensitive_policy}}. Check the related field help for supported settings and how the choice affects your backup or restore.
+
+- key: possibleValueSource:backups_heavy_policy;slot:help
+  summary: The available heavy policy choices for backups.
+  content: |
+    You can see these choices: {{values:backups_heavy_policy}}. Check the related field help for supported settings and how the choice affects your backup or restore.
+
+- key: possibleValueSource:backups_file_policy;slot:help
+  summary: The available file policy choices for backups.
+  content: |
+    You can see these choices: {{values:backups_file_policy}}. Check the related field help for supported settings and how the choice affects your backup or restore.
+
+- key: possibleValueSource:backups_file_missing_policy;slot:help
+  summary: The available file missing policy choices for backups.
+  content: |
+    You can see these choices: {{values:backups_file_missing_policy}}. Check the related field help for supported settings and how the choice affects your backup or restore.
+
+- key: possibleValueSource:backups_consistency;slot:help
+  summary: The available consistency choices for backups.
+  content: |
+    You can see these choices: {{values:backups_consistency}}. Check the related field help for supported settings and how the choice affects your backup or restore.
+
+- key: possibleValueSource:backups_consistency_achieved;slot:help
+  summary: The available consistency achieved choices for backups.
+  content: |
+    You can see these choices: {{values:backups_consistency_achieved}}. Check the related field help for supported settings and how the choice affects your backup or restore.
+
+- key: possibleValueSource:backups_incremental_mode;slot:help
+  summary: The available incremental mode choices for backups.
+  content: |
+    You can see these choices: {{values:backups_incremental_mode}}. Check the related field help for supported settings and how the choice affects your backup or restore.
+
+- key: possibleValueSource:backups_native_dump;slot:help
+  summary: The available native dump choices for backups.
+  content: |
+    You can see these choices: {{values:backups_native_dump}}. Check the related field help for supported settings and how the choice affects your backup or restore.
+
+- key: possibleValueSource:backups_lock_mode;slot:help
+  summary: The available lock mode choices for backups.
+  content: |
+    You can see these choices: {{values:backups_lock_mode}}. Check the related field help for supported settings and how the choice affects your backup or restore.
+
+- key: possibleValueSource:backups_sla_status;slot:help
+  summary: The available sla status choices for backups.
+  content: |
+    You can see these choices: {{values:backups_sla_status}}. Check the related field help for supported settings and how the choice affects your backup or restore.
+
+- key: possibleValueSource:backups_run_trigger;slot:help
+  summary: The available run trigger choices for backups.
+  content: |
+    You can see these choices: {{values:backups_run_trigger}}. Check the related field help for supported settings and how the choice affects your backup or restore.
+
+- key: possibleValueSource:backups_run_status;slot:help
+  summary: The available run status choices for backups.
+  content: |
+    You can see these choices: {{values:backups_run_status}}. Check the related field help for supported settings and how the choice affects your backup or restore.
+
+- key: possibleValueSource:backups_retention_class;slot:help
+  summary: The available retention class choices for backups.
+  content: |
+    You can see these choices: {{values:backups_retention_class}}. Check the related field help for supported settings and how the choice affects your backup or restore.
+
+- key: possibleValueSource:backups_verification_status;slot:help
+  summary: The available verification status choices for backups.
+  content: |
+    You can see these choices: {{values:backups_verification_status}}. Check the related field help for supported settings and how the choice affects your backup or restore.
+
+- key: possibleValueSource:backups_artifact_type;slot:help
+  summary: The available artifact type choices for backups.
+  content: |
+    You can see these choices: {{values:backups_artifact_type}}. Check the related field help for supported settings and how the choice affects your backup or restore.
+
+- key: possibleValueSource:backups_artifact_status;slot:help
+  summary: The available artifact status choices for backups.
+  content: |
+    You can see these choices: {{values:backups_artifact_status}}. Check the related field help for supported settings and how the choice affects your backup or restore.
+
+- key: possibleValueSource:backups_verify_level;slot:help
+  summary: The available verify level choices for backups.
+  content: |
+    You can see these choices: {{values:backups_verify_level}}. Check the related field help for supported settings and how the choice affects your backup or restore.
+
+- key: possibleValueSource:backups_verify_result;slot:help
+  summary: The available verify result choices for backups.
+  content: |
+    You can see these choices: {{values:backups_verify_result}}. Check the related field help for supported settings and how the choice affects your backup or restore.
+
+- key: possibleValueSource:backups_restore_status;slot:help
+  summary: The available restore status choices for backups.
+  content: |
+    You can see these choices: {{values:backups_restore_status}}. Check the related field help for supported settings and how the choice affects your backup or restore.
+
+- key: possibleValueSource:backups_restore_mode;slot:help
+  summary: The available restore mode choices for backups.
+  content: |
+    You can see these choices: {{values:backups_restore_mode}}. Check the related field help for supported settings and how the choice affects your backup or restore.
+
+- key: possibleValueSource:backups_id_strategy;slot:help
+  summary: The available id strategy choices for backups.
+  content: |
+    You can see these choices: {{values:backups_id_strategy}}. Check the related field help for supported settings and how the choice affects your backup or restore.
+
+- key: possibleValueSource:backups_schema_status;slot:help
+  summary: The available schema status choices for backups.
+  content: |
+    You can see these choices: {{values:backups_schema_status}}. Check the related field help for supported settings and how the choice affects your backup or restore.
+
+- key: possibleValueSource:backups_plan;slot:help
+  summary: The backup plans available for linking related records.
+
+- key: possibleValueSource:backups_run;slot:help
+  summary: The backup runs available for linking related records.
+
+- key: possibleValueSource:backups_restore_run;slot:help
+  summary: The restore runs available for linking related records.
+
+- key: process:BackupPlanSyncToScheduledJobProcess;slot:help
+  summary: Keep scheduled backup jobs aligned with your plan settings.
+  content: |
+    Set the plan's schedule, time zone and active status to control its scheduled backup job. This background integration synchronizes those settings when your application configures a scheduler. It does not start a backup immediately. Use **Run backup now** for a manual backup and inspect the plan's latest run to confirm execution.
+- key: process:BackupPlanVerifySyncToScheduledJobProcess;slot:help
+  summary: Keep scheduled verification jobs aligned with your plan settings.
+  content: |
+    Set the plan's verification schedule to request automatic checks when your application configures a scheduler. This background integration keeps the verification job aligned with the plan. Inspect **Verification** for completed checks; synchronizing a schedule does not verify a backup. Use **Verify backup** on a saved run for a manual check.
