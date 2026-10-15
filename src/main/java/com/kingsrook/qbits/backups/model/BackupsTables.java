@@ -413,15 +413,22 @@ public final class BackupsTables
       QCodeReference validation = new QCodeReference(BackupPlanTableCustomizer.class);
       table.withCustomizer(TableCustomizers.PRE_INSERT_RECORD, validation);
       table.withCustomizer(TableCustomizers.PRE_UPDATE_RECORD, validation);
+
+      /////////////////////////////////////////////////////////////////////////////
+      // after a save or delete, the plan customizer clears the cached metrics on //
+      // every node                                                               //
+      /////////////////////////////////////////////////////////////////////////////
+      QCodeReference post = validation;
       if(StringUtils.hasContent(config.getSchedulerName()))
       {
-         QCodeReferenceWithProperties sync = MultiCustomizer.of(
+         post = MultiCustomizer.of(
             BaseSyncToScheduledJobTableCustomizer.makeCodeReference(table, new BackupPlanSyncToScheduledJobProcess()),
-            BaseSyncToScheduledJobTableCustomizer.makeCodeReference(table, new BackupPlanVerifySyncToScheduledJobProcess()));
-         table.withCustomizer(TableCustomizers.POST_INSERT_RECORD, sync);
-         table.withCustomizer(TableCustomizers.POST_UPDATE_RECORD, sync);
-         table.withCustomizer(TableCustomizers.POST_DELETE_RECORD, sync);
+            BaseSyncToScheduledJobTableCustomizer.makeCodeReference(table, new BackupPlanVerifySyncToScheduledJobProcess()),
+            validation);
       }
+      table.withCustomizer(TableCustomizers.POST_INSERT_RECORD, post);
+      table.withCustomizer(TableCustomizers.POST_UPDATE_RECORD, post);
+      table.withCustomizer(TableCustomizers.POST_DELETE_RECORD, post);
       return (table);
    }
 

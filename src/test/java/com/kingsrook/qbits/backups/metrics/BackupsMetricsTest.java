@@ -87,10 +87,15 @@ class BackupsMetricsTest
       String empty = BackupsMetrics.renderCached();
       assertThat(empty).doesNotContain("{instance_name");
 
-      VerifyTestSupport.backup(VerifyTestSupport.plan(Map.of()));
       VerifyTestSupport.clock.advance(Duration.ofSeconds(30));
-      assertThat(BackupsMetrics.renderCached()).as("cached").isEqualTo(empty);
+      assertThat(BackupsMetrics.renderCached()).as("cached").isSameAs(empty);
       VerifyTestSupport.clock.advance(Duration.ofSeconds(31));
+      assertThat(BackupsMetrics.renderCached()).as("expired").isNotSameAs(empty);
+
+      /////////////////////////////////////////////////////////////
+      // a saved plan and a finished run clear the cache at once //
+      /////////////////////////////////////////////////////////////
+      VerifyTestSupport.backup(VerifyTestSupport.plan(Map.of()));
       assertThat(BackupsMetrics.renderCached()).contains("plan=\"nightly\"");
 
       assertThat(BackupsMetrics.escape("a\"b\\c\nd")).isEqualTo("a\\\"b\\\\c\\nd");
