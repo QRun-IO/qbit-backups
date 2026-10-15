@@ -1,5 +1,5 @@
 bundle: qbit-backups
-version: 0.1.0-SNAPSHOT
+version: ${project.version}
 layer: QBIT
 entries:
 - key: table:backups_plan;field:name

@@ -131,6 +131,23 @@
    </dependencies>
 
    <build>
+      <resources>
+         <!-- help bundles carry the artifact version (QQQ help bundle provenance) -->
+         <resource>
+            <directory>src/main/resources</directory>
+            <filtering>true</filtering>
+            <includes>
+               <include>help/*.yaml</include>
+            </includes>
+         </resource>
+         <resource>
+            <directory>src/main/resources</directory>
+            <filtering>false</filtering>
+            <excludes>
+               <exclude>help/*.yaml</exclude>
+            </excludes>
+         </resource>
+      </resources>
       <plugins>
          <plugin>
             <groupId>org.apache.maven.plugins</groupId>
