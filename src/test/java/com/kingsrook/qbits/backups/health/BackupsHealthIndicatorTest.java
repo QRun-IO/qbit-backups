@@ -116,4 +116,17 @@ class BackupsHealthIndicatorTest
          QContext.init(qInstance, new com.kingsrook.qqq.backend.core.model.session.QSession());
       }
    }
+
+
+
+   /*******************************************************************************
+    ** The indicator's own context runs as the core system user, which token-based
+    ** authentication modules accept without a token.
+    *******************************************************************************/
+   @Test
+   void testOwnContextUsesSystemUserSession()
+   {
+      assertThat(BackupsHealthIndicator.systemSession(QContext.getQInstance()))
+         .isInstanceOf(com.kingsrook.qqq.backend.core.model.session.QSystemUserSession.class);
+   }
 }

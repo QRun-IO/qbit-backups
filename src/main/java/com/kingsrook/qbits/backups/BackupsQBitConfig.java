@@ -47,6 +47,8 @@ public class BackupsQBitConfig implements QBitConfig
    private String parentAppName;
    private String tablePathPrefix;
    private String schedulerName;
+   private String hostSchedulerDescription;
+   private Boolean hostSchedulerRunsVerification = false;
    private String instanceName;
 
    private Integer maxConcurrentRuns       = 1;
@@ -197,6 +199,51 @@ public class BackupsQBitConfig implements QBitConfig
    public BackupsQBitConfig withTablePathPrefix(String tablePathPrefix)
    {
       this.tablePathPrefix = tablePathPrefix;
+      return (this);
+   }
+
+
+
+   /*******************************************************************************
+    ** Getter for hostSchedulerDescription: when the application runs plan crons with
+    ** its own tick instead of a QQQ scheduler (schedulerName), a short name for it.
+    ** The Setup card then treats plan crons as firing.
+    *******************************************************************************/
+   public String getHostSchedulerDescription()
+   {
+      return (hostSchedulerDescription);
+   }
+
+
+
+   /*******************************************************************************
+    ** Fluent setter for hostSchedulerDescription.
+    *******************************************************************************/
+   public BackupsQBitConfig withHostSchedulerDescription(String hostSchedulerDescription)
+   {
+      this.hostSchedulerDescription = hostSchedulerDescription;
+      return (this);
+   }
+
+
+
+   /*******************************************************************************
+    ** Getter for hostSchedulerRunsVerification: whether the host's own tick also runs
+    ** the verify cron (by calling the backupVerifyPlan process). False by default.
+    *******************************************************************************/
+   public Boolean getHostSchedulerRunsVerification()
+   {
+      return (hostSchedulerRunsVerification);
+   }
+
+
+
+   /*******************************************************************************
+    ** Fluent setter for hostSchedulerRunsVerification.
+    *******************************************************************************/
+   public BackupsQBitConfig withHostSchedulerRunsVerification(Boolean hostSchedulerRunsVerification)
+   {
+      this.hostSchedulerRunsVerification = hostSchedulerRunsVerification;
       return (this);
    }
 
