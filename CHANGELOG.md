@@ -6,9 +6,15 @@ All notable changes to this project are documented here. The format follows Keep
 
 ### Added
 - Central `backups.sla` and per-active-plan `backups.destination.<planId>` health checks, with bounded read-only destination diagnostics and secret-free status details.
+- Complete host-neutral in-app help bundle with live references and a help coverage gate. Hosts can override entries with a HOST bundle.
+- Guided empty states: help bundle `help/qbit-backups.yaml` (app and all nine tables, with "How rows get created") applied by `BackupsHelp`, and a Setup card on the Backups home (plan, scope rules, storage, schedule, verification, prune bucket).
+- "Create default plan" table action on Backup plans: adds "Nightly full" for a storage bucket alias; insert-only.
+- `backupVerifyPlan`: the scheduled verification process. A plan verify cron created a scheduled job for a process that did not exist, so scheduled verification never ran.
 - Repository scaffold: `BackupsQBitConfig` and `BackupsQBitProducer` (table prefix `backups_`, permissions `backups.*`), build, CI and repository standard files.
 
 ### Changed
+- Pin QQQ to released 4.1.0-RC.7 and replace the temporary help loader with core HelpBundles registration.
+- Saving a plan with Use read replica on is refused (it was never read); the not-yet-available settings (read replica, native dump, incremental, PARQUET, ZSTD) say so in their field help; scheduledJobId is documented as unused.
 - Build against the released QQQ BOM 4.1.0-RC.5; replace reflective alerts binding with core QAlerts and real sink integration tests.
 - Register backup alert types for every instance while preserving custom backup sinks and no-op behavior without a configured core sink.
 - Use RC.5-valid alert names `backups.run.missing-in-storage` and `backups.plan.owner-invalid` (and matching deduplication keys). Hosts using the old underscore names must update routing rules.

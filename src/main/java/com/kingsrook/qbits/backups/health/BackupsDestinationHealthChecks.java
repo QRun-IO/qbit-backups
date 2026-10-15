@@ -30,7 +30,7 @@ import com.kingsrook.qqq.backend.core.health.HealthCheckMetaData;
 import com.kingsrook.qqq.backend.core.health.HealthCheckSupplier;
 import com.kingsrook.qqq.backend.core.model.data.QRecord;
 import com.kingsrook.qqq.backend.core.model.metadata.QInstance;
-import com.kingsrook.qqq.backend.core.model.session.QSession;
+import com.kingsrook.qqq.backend.core.model.session.QSystemUserSession;
 
 
 /*******************************************************************************
@@ -51,7 +51,7 @@ public class BackupsDestinationHealthChecks implements HealthCheckSupplier
       boolean ownsContext = QContext.getQInstance() == null;
       if(ownsContext)
       {
-         QContext.init(qInstance, new QSession());
+         QContext.init(qInstance, new QSystemUserSession(qInstance));
       }
       try
       {

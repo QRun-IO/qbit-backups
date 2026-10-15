@@ -31,7 +31,7 @@ import com.kingsrook.qqq.backend.core.health.HealthCheckInput;
 import com.kingsrook.qqq.backend.core.health.HealthCheckOutcome;
 import com.kingsrook.qqq.backend.core.health.HealthDetails;
 import com.kingsrook.qqq.backend.core.model.data.QRecord;
-import com.kingsrook.qqq.backend.core.model.session.QSession;
+import com.kingsrook.qqq.backend.core.model.session.QSystemUserSession;
 
 
 /*******************************************************************************
@@ -56,7 +56,7 @@ public class BackupsSlaHealthCheck implements HealthCheck
       boolean ownsContext = QContext.getQInstance() == null;
       if(ownsContext)
       {
-         QContext.init(input.getQInstance(), new QSession());
+         QContext.init(input.getQInstance(), new QSystemUserSession(input.getQInstance()));
       }
       try
       {

@@ -195,6 +195,11 @@ class BackupsHealthChecksTest
          assertThat(QContext.getQInstance()).isNull();
          assertThat(new BackupsDestinationHealthChecks().supply(instance)).hasSize(1);
          assertThat(QContext.getQInstance()).isNull();
+         BackupsRuntime.getConfig().withStorageResolver(alias ->
+         {
+            assertThat(QContext.getQSession()).isInstanceOf(com.kingsrook.qqq.backend.core.model.session.QSystemUserSession.class);
+            return (storage);
+         });
          assertThat(destination(plan).run(input).getStatus()).isEqualTo(HealthStatus.UP);
          assertThat(QContext.getQInstance()).isNull();
       }

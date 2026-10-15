@@ -10,7 +10,7 @@
 ## Requirements
 
 - Java 21.
-- QQQ 4.1 (targets `4.1.0-RC.6`, not yet released).
+- QQQ `4.1.0-RC.8` or later.
 
 ## Install
 
@@ -21,6 +21,10 @@ new BackupsQBitProducer()
    .withQBitConfig(new BackupsQBitConfig().withBackendName("rdbms"))
    .produce(qInstance);
 ```
+
+## Setup
+
+This qbit ships no DDL and seeds nothing from a changelog: its one setup value, the storage bucket alias, belongs to your application. On a fresh install open Backups, read the Setup card, and run **Create default plan** on Backup plans (it asks only for the alias of a bucket your storage resolver provides). It creates the insert-only "Nightly full" plan: whole instance, data and audit tables, JSONL and gzip, 02:00 UTC, verified Sundays 04:00 UTC. Edit any setting afterwards. Help for every table, including how its rows get created, ships in `help/qbit-backups.yaml`.
 
 ## Naming
 
@@ -36,15 +40,25 @@ Follow the QQQ [adoption checklist](https://github.com/QRun-IO/qqq/blob/develop/
 ./mvnw verify
 ```
 
-Health checks require the unreleased core health SPI, installed locally as `4.1.0-SNAPSHOT`:
+See [the RC.6 migration notes](docs/RC6-MIGRATION.md) for fingerprint compatibility,
+paging guarantees and restore permissions.
 
-```bash
-./mvnw -o verify -Dqqq.snapshot.version=4.1.0-SNAPSHOT -Denforcer.skipRules=requireReleaseDeps -Dtest='!ObjectStorageBackupStorageMinioTest'
-```
+Health checks use the core health API released in QQQ `4.1.0-RC.8`.
+The producer registers `backups.sla` and a read-only destination check for each
+active plan (`backups.destination.<planId>`). With dependencies cached locally,
+run `./mvnw -o verify`; no enforcer skip flags are required.
 
-This skips only the release-only dependency rule for the required local SNAPSHOT
-and excludes the Docker/MinIO tests to keep verification offline. The POM stays on RC.6. See [the RC.6 migration notes](docs/RC6-MIGRATION.md) for
-fingerprint compatibility, paging guarantees and restore permissions.
+## In-app help
+
+The producer registers [help/qbit-backups.yaml](src/main/resources/help/qbit-backups.yaml)
+as a QBIT bundle. Hosts can register a `layer: HOST` bundle with matching entry keys
+and roles to override its text. Core's help startup sync applies the bundle when the
+host installs the help content table; registration also works without that table.
+
+`BackupPlanScheduleTest` checks coverage with `HelpBundleAssertions`, including
+live references and optional scheduler processes. `BackupsTablesGuardrailTest`
+checks empty-state, widget and possible-value-source coverage. Run it with
+`./mvnw verify`. Keep the bundle's literal version aligned with the POM version.
 
 Always use the Maven wrapper (Maven 3.9.11); Maven 3.10 cannot read the parent POM.
 

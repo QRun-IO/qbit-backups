@@ -25,6 +25,7 @@ import com.kingsrook.qqq.backend.core.health.HealthCheckMetaData;
 import com.kingsrook.qqq.backend.core.health.HealthCheckSupplierMetaData;
 import com.kingsrook.qqq.backend.core.health.HealthChecksMetaData;
 import com.kingsrook.qqq.backend.core.model.metadata.code.QCodeReference;
+import com.kingsrook.qqq.backend.core.model.metadata.help.bundles.HelpBundles;
 import com.kingsrook.qqq.backend.core.model.metadata.qbits.QBitMetaData;
 import com.kingsrook.qqq.backend.core.model.metadata.qbits.QBitMetaDataProducer;
 
@@ -168,6 +169,8 @@ public class BackupsQBitProducer implements QBitMetaDataProducer<BackupsQBitConf
       com.kingsrook.qqq.backend.core.model.metadata.layout.QAppMetaData app = com.kingsrook.qbits.backups.app.BackupsApp.app(qBitConfig, tables);
       output.add(app);
       output.addSelfToInstance(qInstance);
+      // Registration is metadata-only; core guards startup sync when helpContent is absent.
+      HelpBundles.register(qInstance, "help/qbit-backups.yaml");
 
       HealthChecksMetaData.ofOrWithNew(qInstance)
          .withCheck(new HealthCheckMetaData().withName(BackupsSlaHealthCheck.NAME).withLabel("Backup SLA")
