@@ -24,6 +24,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import com.kingsrook.qbits.backups.BackupsRuntime;
+import com.kingsrook.qbits.backups.BackupsTestUtils;
 import com.kingsrook.qbits.backups.VerifyTestSupport;
 import com.kingsrook.qbits.backups.sla.SlaChecker;
 import com.kingsrook.qqq.backend.core.alerts.AlertResolution;
@@ -31,11 +32,18 @@ import com.kingsrook.qqq.backend.core.alerts.AlertSignal;
 import com.kingsrook.qqq.backend.core.alerts.AlertSinkInterface;
 import com.kingsrook.qqq.backend.core.alerts.AlertsInstanceMetaData;
 import com.kingsrook.qqq.backend.core.alerts.QAlerts;
+import com.kingsrook.qqq.backend.core.actions.tables.InsertAction;
+import com.kingsrook.qqq.backend.core.actions.tables.QueryAction;
 import com.kingsrook.qqq.backend.core.context.QContext;
 import com.kingsrook.qqq.backend.core.instances.QInstanceValidator;
+import com.kingsrook.qqq.backend.core.model.actions.tables.insert.InsertInput;
+import com.kingsrook.qqq.backend.core.model.actions.tables.query.QueryInput;
 import com.kingsrook.qqq.backend.core.model.data.QRecord;
 import com.kingsrook.qqq.backend.core.model.metadata.QInstance;
 import com.kingsrook.qqq.backend.core.model.metadata.code.QCodeReference;
+import com.kingsrook.qqq.backend.core.model.metadata.fields.QFieldMetaData;
+import com.kingsrook.qqq.backend.core.model.metadata.fields.QFieldType;
+import com.kingsrook.qqq.backend.core.model.metadata.tables.QTableMetaData;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -204,6 +212,35 @@ class AlertsQBitAlertSinkTest
       assertThat(types.get(2).getDefaultSeverity().name()).isEqualTo("CRITICAL");
       assertThat(sink.registerAlertTypes(instance)).isZero();
       new QInstanceValidator().validate(QContext.getQInstance());
+   }
+
+
+
+   /*******************************************************************************
+    ** Alert-only types get notify switched off on the Alerts qbit's type row (once
+    ** the row exists); types that notify are left alone.
+    *******************************************************************************/
+   @Test
+   void testAlertOnlyTypesAreNotSentToTheBell() throws Exception
+   {
+      QContext.getQInstance().addTable(new QTableMetaData().withName("alerts_type").withBackendName(BackupsTestUtils.BACKEND).withPrimaryKeyField("id")
+         .withField(new QFieldMetaData("id", QFieldType.INTEGER))
+         .withField(new QFieldMetaData("name", QFieldType.STRING))
+         .withField(new QFieldMetaData("notify", QFieldType.BOOLEAN)));
+      InsertInput insert = new InsertInput("alerts_type");
+      insert.setRecords(List.of(
+         new QRecord().withValue("name", BackupAlerts.STORAGE_DEBRIS).withValue("notify", true),
+         new QRecord().withValue("name", BackupAlerts.PLAN_MISSED).withValue("notify", true)));
+      new InsertAction().execute(insert);
+
+      AlertsQBitAlertSink sink = new AlertsQBitAlertSink();
+      sink.raise(BackupAlerts.PLAN_MISSED, "k", BackupAlertSink.Severity.ERROR, "x", Map.of());
+      sink.raise(BackupAlerts.STORAGE_DEBRIS, "k", BackupAlertSink.Severity.INFO, "x", Map.of());
+
+      QueryInput query = new QueryInput("alerts_type");
+      Map<String, Boolean> notify = new LinkedHashMap<>();
+      new QueryAction().execute(query).getRecords().forEach(r -> notify.put(r.getValueString("name"), r.getValueBoolean("notify")));
+      assertThat(notify).containsEntry(BackupAlerts.STORAGE_DEBRIS, false).containsEntry(BackupAlerts.PLAN_MISSED, true);
    }
 
 

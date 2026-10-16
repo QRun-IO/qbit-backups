@@ -56,9 +56,18 @@ public final class BackupAlerts
     ** @param label a short label
     ** @param defaultSeverity the severity when a signal does not say
     ** @param howToFix one sentence for the person looking at the alert
+    ** @param bell whether the alert also goes to the notification bell; false
+    **        keeps it alert-only (listed in the Alerts qbit, never pushed)
     ***************************************************************************/
-   public record AlertType(String name, String label, BackupAlertSink.Severity defaultSeverity, String howToFix)
+   public record AlertType(String name, String label, BackupAlertSink.Severity defaultSeverity, String howToFix, boolean bell)
    {
+      /*******************************************************************************
+       ** An alert type that notifies (the default).
+       *******************************************************************************/
+      public AlertType(String name, String label, BackupAlertSink.Severity defaultSeverity, String howToFix)
+      {
+         this(name, label, defaultSeverity, howToFix, true);
+      }
    }
 
 
@@ -93,9 +102,9 @@ public final class BackupAlerts
          new AlertType(PLAN_OWNER_INVALID, "Backup plan owner is not valid", BackupAlertSink.Severity.WARNING,
             "Set an owner who exists and holds backups.admin on the plan."),
          new AlertType(STORAGE_DEBRIS, "Backup storage has debris or orphans", BackupAlertSink.Severity.INFO,
-            "Prune clears debris. Orphan prefixes can be imported into the catalog or deleted."),
+            "Prune clears debris. Orphan prefixes can be imported into the catalog or deleted.", false),
          new AlertType(RESTORE_COMPLETED, "A restore finished", BackupAlertSink.Severity.INFO,
-            "Nothing to fix unless the restore failed. Open the restore run.")));
+            "Nothing to fix unless the restore failed. Open the restore run.", false)));
    }
 
 

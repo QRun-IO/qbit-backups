@@ -80,6 +80,18 @@ class BackupAlertsTest
 
 
    /*******************************************************************************
+    ** Only the two informational types are alert-only; everything else notifies.
+    *******************************************************************************/
+   @Test
+   void testOnlyInformationalTypesAreAlertOnly()
+   {
+      Set<String> alertOnly = BackupAlerts.alertTypes().stream().filter(t -> !t.bell()).map(BackupAlerts.AlertType::name).collect(Collectors.toSet());
+      assertThat(alertOnly).containsExactlyInAnyOrder(BackupAlerts.STORAGE_DEBRIS, BackupAlerts.RESTORE_COMPLETED);
+   }
+
+
+
+   /*******************************************************************************
     ** Dedupe keys are the type plus the plan (or plan and level), never a value.
     *******************************************************************************/
    @Test
