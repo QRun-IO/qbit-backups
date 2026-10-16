@@ -22,6 +22,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 import com.kingsrook.qbits.backups.BackupsRuntime;
 import com.kingsrook.qbits.backups.model.BackupsTables;
 import com.kingsrook.qbits.backups.permissions.BackupsPermissions;
@@ -178,6 +180,10 @@ public final class BackupsProcesses
       private final ProcessSummaryLine tables   = line(Status.INFO, "table will be backed up", "tables will be backed up", "table was backed up", "tables were backed up");
       private final ProcessSummaryLine excluded = line(Status.INFO, "table is left out by its role or scope", "tables are left out by their role or scope",
          "table was left out by its role or scope", "tables were left out by their role or scope");
+      private final ProcessSummaryLine unreadable = line(Status.INFO, "table is left out because its backend cannot be queried (storage only)",
+         "tables are left out because their backend cannot be queried (storage only)", "table was left out because its backend cannot be queried (storage only)",
+         "tables were left out because their backend cannot be queried (storage only)");
+      private final Set<String>        unreadableNames = new TreeSet<>();
       private final ProcessSummaryLine inactive = line(Status.WARNING, "plan is not active (it can still be run by hand)", "plans are not active (they can still be run by hand)",
          "plan was not active", "plans were not active");
       private final ProcessSummaryLine invalid  = line(Status.ERROR, "plan cannot run", "plans cannot run", "plan could not run", "plans could not run");
@@ -205,6 +211,14 @@ public final class BackupsProcesses
                plans.incrementCountAndAddPrimaryKey(plan.getValue("id"));
                tables.incrementCount(scope.tables().size());
                excluded.incrementCount(scope.excluded().size());
+               for(ScopeResolver.ExcludedTable out : scope.excluded())
+               {
+                  if(ScopeResolver.NOT_QUERYABLE.equals(out.reason()) && unreadableNames.add(out.name()))
+                  {
+                     unreadable.incrementCount();
+                     unreadable.setMessageSuffix(": " + String.join(", ", unreadableNames));
+                  }
+               }
                if(!Boolean.TRUE.equals(plan.getValueBoolean("isActive")))
                {
                   inactive.incrementCountAndAddPrimaryKey(plan.getValue("id"));
@@ -235,6 +249,7 @@ public final class BackupsProcesses
          plans.addSelfToListIfAnyCount(lines);
          tables.addSelfToListIfAnyCount(lines);
          excluded.addSelfToListIfAnyCount(lines);
+         unreadable.addSelfToListIfAnyCount(lines);
          inactive.addSelfToListIfAnyCount(lines);
          invalid.addSelfToListIfAnyCount(lines);
          return (lines);
