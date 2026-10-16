@@ -35,6 +35,6 @@ public enum TableRole
    SECRET,
    /** The tables of this qbit: the catalog is rebuilt from manifests. */
    BACKUPS,
-   /** Tables backed by another system (API). Excluded by default; selectable. */
+   /** Tables backed by another system (API), or by a backend that cannot be queried (storage-only: never read, even when selected). Excluded by default. */
    EXTERNAL
 }

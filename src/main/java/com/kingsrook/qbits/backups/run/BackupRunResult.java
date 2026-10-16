@@ -43,6 +43,7 @@ public class BackupRunResult
    private int          filesMissing;
    private long         fileBytesCopied;
    private String       errorMessage;
+   private String       errorDetail;
    private List<String> warnings = new ArrayList<>();
 
 
@@ -393,6 +394,26 @@ public class BackupRunResult
    public void setErrorMessage(String errorMessage)
    {
       this.errorMessage = errorMessage;
+   }
+
+
+
+   /*******************************************************************************
+    ** Getter for errorDetail (sanitized class, message, cause chain and root frames)
+    *******************************************************************************/
+   public String getErrorDetail()
+   {
+      return (errorDetail);
+   }
+
+
+
+   /*******************************************************************************
+    ** Setter for errorDetail
+    *******************************************************************************/
+   public void setErrorDetail(String errorDetail)
+   {
+      this.errorDetail = errorDetail;
    }
 
 

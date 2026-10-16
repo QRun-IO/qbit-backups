@@ -77,7 +77,7 @@ import static com.kingsrook.qqq.backend.core.logging.LogUtils.logPair;
  ** content-addressed store; checksums.sha256 is written; and the manifest is
  ** written LAST, then checked with a head.  A run with no manifest did not
  ** complete.  The run row is updated every page (heartbeat), and a failure marks
- ** the run FAILED with a scrubbed message (never row values).
+ ** the run FAILED with a sanitized message and detail (no secrets, no row values).
  *******************************************************************************/
 public class BackupEngine
 {
@@ -142,6 +142,7 @@ public class BackupEngine
             runValues.remove("startDate");
             runValues.put("endDate", null);
             runValues.put("errorMessage", null);
+            runValues.put("errorDetail", null);
          }
          if(request.getExistingRunId() != null)
          {
@@ -155,9 +156,12 @@ public class BackupEngine
       }
       catch(Exception e)
       {
+         LOG.warn("Could not create the backup run record", e, logPair("runKey", runKey));
+         String message = FailureText.summary("Could not create the run record", e);
          result.setStatus("FAILED");
-         result.setErrorMessage("Could not create the run record (" + e.getClass().getSimpleName() + ")");
-         failProgress(progress, "Could not create the run record (" + e.getClass().getSimpleName() + ")");
+         result.setErrorMessage(message);
+         result.setErrorDetail(FailureText.detail(e));
+         failProgress(progress, message);
          return (result);
       }
 
@@ -174,12 +178,12 @@ public class BackupEngine
       }
       catch(CancelledException e)
       {
-         finish(request, result, "CANCELLED", "Cancelled", started);
+         finish(request, result, "CANCELLED", "Cancelled", null, started);
          progress.info("Backup cancelled");
       }
       catch(TimedOutException e)
       {
-         finish(request, result, "TIMED_OUT", e.getMessage(), started);
+         finish(request, result, "TIMED_OUT", e.getMessage(), null, started);
          failProgress(progress, e.getMessage());
       }
       catch(Exception e)
@@ -189,14 +193,14 @@ public class BackupEngine
          {
             if(interrupted.getReason() != JobInterruptedException.Reason.LEASE_LOST)
             {
-               finish(request, result, interrupted.getReason() == JobInterruptedException.Reason.CANCEL ? "CANCELLED" : "ABANDONED", "Job interrupted", started);
+               finish(request, result, interrupted.getReason() == JobInterruptedException.Reason.CANCEL ? "CANCELLED" : "ABANDONED", "Job interrupted", null, started);
             }
             throw (interrupted);
          }
          LOG.warn("Backup run failed", e, logPair("runKey", runKey));
-         // Provider and reader messages can contain credentials or row values.
-         failProgress(progress, scrub(e));
-         finish(request, result, "FAILED", scrub(e), started);
+         String message = scrub(e);
+         failProgress(progress, message);
+         finish(request, result, "FAILED", message, FailureText.detail(e), started);
       }
       finally
       {
@@ -573,7 +577,7 @@ public class BackupEngine
       extra.put("bytesRaw", bytesRaw);
       extra.put("bytesStored", bytesStored);
       extra.put("warningCount", result.getWarnings().size());
-      finishWith(request, result, result.getWarnings().isEmpty() ? "SUCCEEDED" : "SUCCEEDED_WITH_WARNINGS", null, started, extra);
+      finishWith(request, result, result.getWarnings().isEmpty() ? "SUCCEEDED" : "SUCCEEDED_WITH_WARNINGS", null, null, started, extra);
    }
 
 
@@ -741,11 +745,11 @@ public class BackupEngine
    /*******************************************************************************
     **
     *******************************************************************************/
-   private void finish(BackupRunRequest request, BackupRunResult result, String status, String message, Instant started)
+   private void finish(BackupRunRequest request, BackupRunResult result, String status, String message, String detail, Instant started)
    {
       try
       {
-         finishWith(request, result, status, message, started, new LinkedHashMap<>());
+         finishWith(request, result, status, message, detail, started, new LinkedHashMap<>());
       }
       catch(Exception e)
       {
@@ -753,6 +757,7 @@ public class BackupEngine
          request.getProgress().warn("Could not finish the run record");
          result.setStatus(status);
          result.setErrorMessage(message);
+         result.setErrorDetail(detail);
       }
    }
 
@@ -761,7 +766,7 @@ public class BackupEngine
    /*******************************************************************************
     **
     *******************************************************************************/
-   private void finishWith(BackupRunRequest request, BackupRunResult result, String status, String message, Instant started, Map<String, Serializable> extra) throws Exception
+   private void finishWith(BackupRunRequest request, BackupRunResult result, String status, String message, String detail, Instant started, Map<String, Serializable> extra) throws Exception
    {
       Instant end = request.getClock().instant();
       Map<String, Serializable> v = new LinkedHashMap<>(extra);
@@ -770,10 +775,12 @@ public class BackupEngine
       v.put("durationMs", end.toEpochMilli() - started.toEpochMilli());
       v.put("heartbeatDate", end);
       v.put("errorMessage", message);
+      v.put("errorDetail", detail);
       v.put("warningCount", result.getWarnings().size());
       catalog.update(BackupsTables.RUN, result.getRunId(), v);
       result.setStatus(status);
       result.setErrorMessage(message);
+      result.setErrorDetail(detail);
       signal(request, result, status, message);
       BackupsMetrics.invalidate();
    }
@@ -828,12 +835,17 @@ public class BackupEngine
 
 
    /*******************************************************************************
-    ** Provider exceptions may contain credentials or row values. Persist only the
-    ** failure type; detailed diagnostics stay in the server log.
+    ** The error_message of a failed run: "Backup failed: SimpleClass: message".
+    ** Provider, driver and reader messages can contain credentials or row values,
+    ** so the message goes through FailureText.sanitize (URL user-info, presigned
+    ** query parameters, key=value secrets, Authorization values, AWS key ids, PEM
+    ** blocks and Postgres row-value fragments are redacted; object keys and bucket
+    ** names are kept).  The class, the cause chain and the root cause frames go to
+    ** error_detail (FailureText.detail); the full trace stays in the server log.
     *******************************************************************************/
    private static String scrub(Exception e)
    {
-      return ("Backup failed (" + e.getClass().getSimpleName() + "); see server logs for details.");
+      return (FailureText.summary(e));
    }
 
 
