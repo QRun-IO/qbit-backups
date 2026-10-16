@@ -21,5 +21,6 @@ jobs:
   release-rc:
     if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.merged == true && contains(github.event.pull_request.labels.*.name, 'release:rc'))
     uses: QRun-IO/.github/.github/workflows/qbit-release-rc.yml@main
+    secrets: inherit
     with:
       dry_run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
