@@ -87,6 +87,7 @@ class SlaCheckerTest
       assertThat(late.previousStatus()).isEqualTo(SlaChecker.UNKNOWN);
       assertThat(reload(plan).getValueString("slaStatus")).isEqualTo("LATE");
       BackupAlertsAssert.assertOpen("backups.plan.missed:nightly", BackupAlertSink.Severity.CRITICAL);
+      assertThat(sink.open.get("backups.plan.missed:nightly").title()).isEqualTo("Backup \"Nightly\" did not run in time");
 
    }
 

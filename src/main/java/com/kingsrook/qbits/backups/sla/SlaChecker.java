@@ -262,7 +262,7 @@ public class SlaChecker
 
       if(missing)
       {
-         BackupAlerts.raise(BackupAlerts.RUN_MISSING, planKey, BackupAlertSink.Severity.CRITICAL, "The latest backup is missing from storage",
+         BackupAlerts.raise(BackupAlerts.RUN_MISSING, planKey, BackupAlertSink.Severity.CRITICAL, "The latest backup of \"" + name + "\" is missing from storage",
             "plan", planKey, "planName", name);
       }
       else
@@ -273,7 +273,7 @@ public class SlaChecker
       if(late)
       {
          BackupAlerts.raise(BackupAlerts.PLAN_MISSED, planKey, critical ? BackupAlertSink.Severity.CRITICAL : BackupAlertSink.Severity.ERROR,
-            "A backup did not run in time", "plan", planKey, "planName", name, "slaHours", String.valueOf(slaHours(plan)));
+            "Backup \"" + name + "\" did not run in time", "plan", planKey, "planName", name, "slaHours", String.valueOf(slaHours(plan)));
       }
       else
       {
@@ -283,7 +283,7 @@ public class SlaChecker
       if(latestFailed || abandoned)
       {
          BackupAlerts.raise(BackupAlerts.RUN_FAILED, planKey, failing ? BackupAlertSink.Severity.ERROR : BackupAlertSink.Severity.WARNING,
-            failing ? "Backups have failed twice in a row" : "A backup run failed", "plan", planKey, "planName", name);
+            failing ? "Backup \"" + name + "\" has failed twice in a row" : "Backup \"" + name + "\" run failed", "plan", planKey, "planName", name);
       }
       else if(latestFinished != null)
       {
@@ -292,7 +292,7 @@ public class SlaChecker
 
       if(ownerBad)
       {
-         BackupAlerts.raise(BackupAlerts.PLAN_OWNER_INVALID, planKey, BackupAlertSink.Severity.WARNING, "The backup plan owner is not valid",
+         BackupAlerts.raise(BackupAlerts.PLAN_OWNER_INVALID, planKey, BackupAlertSink.Severity.WARNING, "The owner of backup plan \"" + name + "\" is not valid",
             "plan", planKey, "planName", name);
       }
       else
@@ -302,7 +302,7 @@ public class SlaChecker
 
       if(unverified)
       {
-         BackupAlerts.raise(BackupAlerts.VERIFY_OVERDUE, planKey, BackupAlertSink.Severity.WARNING, "No backup has been verified recently",
+         BackupAlerts.raise(BackupAlerts.VERIFY_OVERDUE, planKey, BackupAlertSink.Severity.WARNING, "No backup of \"" + name + "\" has been verified recently",
             "plan", planKey, "planName", name, "verifySlaDays", String.valueOf(plan.getValueInteger("verifySlaDays")));
       }
       else
@@ -507,7 +507,7 @@ public class SlaChecker
          LAST_AUDIT_AT.put(auditKey, now);
          if(orphans + debris > 0)
          {
-            BackupAlerts.raise(BackupAlerts.STORAGE_DEBRIS, planKey, BackupAlertSink.Severity.INFO, "Backup storage has orphans or debris",
+            BackupAlerts.raise(BackupAlerts.STORAGE_DEBRIS, planKey, BackupAlertSink.Severity.INFO, "Backup storage of \"" + planKey + "\" has orphans or debris",
                "plan", planKey, "orphans", String.valueOf(orphans), "debris", String.valueOf(debris));
          }
          else

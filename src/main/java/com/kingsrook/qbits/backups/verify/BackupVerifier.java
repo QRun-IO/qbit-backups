@@ -639,7 +639,7 @@ public class BackupVerifier
          detail.put("level", outcome.level());
          detail.put("mismatches", String.valueOf(outcome.mismatches()));
          BackupAlerts.raiseWithKey(BackupAlerts.VERIFY_FAILED, BackupAlerts.verifyKey(planKey, outcome.level()), BackupAlertSink.Severity.ERROR,
-            "Backup verification failed (" + outcome.level() + ")", detail);
+            "Verification of backup \"" + (plan.getValueString("name") == null ? planKey : plan.getValueString("name")) + "\" failed (" + outcome.level() + ")", detail);
       }
    }
 }
