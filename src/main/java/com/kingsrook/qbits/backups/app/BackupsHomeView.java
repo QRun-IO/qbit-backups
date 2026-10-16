@@ -69,10 +69,11 @@ public final class BackupsHomeView
    public static String render(BackupsHomeData data, String pathPrefix)
    {
       StringBuilder html = new StringBuilder("<div class=\"backups-home\" style=\"" + ROOT + "\">");
+      List<BackupsSetupStatus.Item> setupItems = BackupsSetupStatus.load(data.plans());
       planStatus(html, data, pathPrefix);
-      setup(html, data, pathPrefix);
+      setup(html, setupItems, pathPrefix);
       html.append("<div style=\"").append(GRID).append("\">");
-      needsAttention(html, data, pathPrefix);
+      needsAttention(html, data, setupItems, pathPrefix);
       latestTestRestore(html, data, pathPrefix);
       recentActivity(html, data, pathPrefix);
       trend(html, data);
@@ -144,9 +145,8 @@ public final class BackupsHomeView
     ** The Setup card: what a working backup needs, whether each part is in place,
     ** and the next step, linked to its table.
     *******************************************************************************/
-   private static void setup(StringBuilder html, BackupsHomeData data, String prefix)
+   private static void setup(StringBuilder html, List<BackupsSetupStatus.Item> items, String prefix)
    {
-      List<BackupsSetupStatus.Item> items = BackupsSetupStatus.load(data.plans());
       open(html, "Setup");
       long todo = items.stream().filter(i -> i.state() == BackupsSetupStatus.State.TODO).count();
       html.append("<p style=\"margin:0 0 .6rem;font-size:.9rem;\">")
@@ -185,23 +185,27 @@ public final class BackupsHomeView
 
 
    /*******************************************************************************
-    ** Needs attention.
+    ** Needs attention: every Setup item that needs setup (the same list the Setup
+    ** card counts), plus plans in a problem state and recent failed runs, so the two
+    ** cards never disagree.
     *******************************************************************************/
-   private static void needsAttention(StringBuilder html, BackupsHomeData data, String prefix)
+   private static void needsAttention(StringBuilder html, BackupsHomeData data, List<BackupsSetupStatus.Item> setupItems, String prefix)
    {
       open(html, "Needs attention");
-      List<QRecord> plans = data.plansNeedingAttention();
-      if(data.plans().isEmpty())
+      List<BackupsSetupStatus.Item> setupTodo = setupItems.stream().filter(i -> i.state() == BackupsSetupStatus.State.TODO).toList();
+      List<QRecord>                 plans     = data.plansNeedingAttention();
+      if(setupTodo.isEmpty() && plans.isEmpty() && data.failedRuns().isEmpty())
       {
-         empty(html, "Nothing to check yet: no plans.");
-      }
-      else if(plans.isEmpty() && data.failedRuns().isEmpty())
-      {
-         empty(html, "Nothing needs attention.");
+         empty(html, data.plans().isEmpty() ? "Nothing to check yet: no plans." : "Nothing needs attention.");
       }
       else
       {
          html.append("<ul style=\"").append(ITEMS).append("\">");
+         for(BackupsSetupStatus.Item item : setupTodo)
+         {
+            html.append("<li>Setup: <a style=\"").append(LINK).append("\" href=\"").append(esc(prefix + "/" + item.tableName())).append("\">").append(esc(item.label())).append("</a>: ")
+               .append(esc(item.detail())).append("</li>");
+         }
          for(QRecord plan : plans)
          {
             html.append("<li>").append(recordLink(prefix, BackupsTables.PLAN, plan.getValue("id"), plan.getValueString("name")))

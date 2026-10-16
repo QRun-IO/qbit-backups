@@ -88,7 +88,7 @@ class BackupsHomeTest
    void testEmptyStates()
    {
       String html = BackupsHomeView.render(new BackupsHomeData(List.of(), List.of(), List.of(), List.of(), List.of(), Instant.now()), "/app");
-      assertThat(html).contains("No backup plans yet").contains("Nothing to check yet").contains("No test restore yet")
+      assertThat(html).contains("No backup plans yet").contains("Setup: <a").contains("No plan: nothing is backed up.").doesNotContain("Nothing needs attention").contains("No test restore yet")
          .contains("Nothing has run yet").contains("Trends appear after the first successful run").contains("Retention starts once runs exist");
       assertThat(BackupsHomeView.renderHealthCard(new BackupsHomeData(List.of(), List.of(), List.of(), List.of(), List.of(), Instant.now()), "/app")).contains("No backup plans yet");
    }
@@ -117,6 +117,45 @@ class BackupsHomeTest
       assertThat(later.plansNeedingAttention()).hasSize(1);
       assertThat(BackupsHomeView.render(later, "/app")).contains("Needs attention").contains("Late");
       assertThat(later.overallState()).isEqualTo("ATTENTION");
+   }
+
+
+
+   /*******************************************************************************
+    ** The Setup card and the Needs attention card never contradict each other: a plan
+    ** whose storage aliases do not resolve is a Setup fault, and it is listed under
+    ** Needs attention too, with the same count.
+    *******************************************************************************/
+   @Test
+   void testUnresolvedAliasAppearsInSetupAndNeedsAttention() throws Exception
+   {
+      BackupsRuntime.getConfig().withStorageResolver(alias -> BackupsTestUtils.BACKUPS);
+      new BackupCatalog().insert(BackupsTables.PLAN, new LinkedHashMap<>(Map.of("name", "Offsite", "planKey", "offsite", "isActive", true, "scopeType", "INSTANCE",
+         "storageBucketAlias", "backupsAws", "pruneBucketAlias", "backupsAwsPrune")));
+
+      //////////////////////////////////////////////////////////////////////////////
+      // the aliases resolved when the plan was saved; now the bucket is gone      //
+      //////////////////////////////////////////////////////////////////////////////
+      BackupsRuntime.getConfig().withStorageResolver(alias -> "backups".equals(alias) ? BackupsTestUtils.BACKUPS : null);
+
+      BackupsHomeData data = BackupsHomeData.load();
+      List<BackupsSetupStatus.Item> setupTodo = BackupsSetupStatus.load(data.plans()).stream().filter(i -> i.state() == BackupsSetupStatus.State.TODO).toList();
+      assertThat(setupTodo).extracting(BackupsSetupStatus.Item::label).contains("Storage");
+
+      String html = BackupsHomeView.render(data, "/app");
+      String attention = html.substring(html.indexOf(">Needs attention<"));
+      attention = attention.substring(0, attention.indexOf("All runs"));
+      assertThat(attention).doesNotContain("Nothing needs attention").contains("backupsAws").contains("backupsAwsPrune");
+
+      ///////////////////////////////////////////////////////////////////////////////
+      // every Setup TODO is listed under Needs attention (counts agree: 2 and 2)   //
+      ///////////////////////////////////////////////////////////////////////////////
+      assertThat(html).contains(setupTodo.size() + " items need attention.");
+      for(BackupsSetupStatus.Item item : setupTodo)
+      {
+         assertThat(attention).contains("Setup: <a").contains(item.label());
+      }
+      assertThat(attention.split("<li>", -1).length - 1).isEqualTo(setupTodo.size() + data.plansNeedingAttention().size() + data.failedRuns().size());
    }
 
 
