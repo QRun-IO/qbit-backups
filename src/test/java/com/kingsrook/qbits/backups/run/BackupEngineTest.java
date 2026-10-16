@@ -29,6 +29,8 @@ import com.kingsrook.qbits.backups.manifest.BackupManifest;
 import com.kingsrook.qbits.backups.model.BackupsTables;
 import com.kingsrook.qbits.backups.scope.PlanSettings;
 import com.kingsrook.qbits.backups.scope.ScopeResolver;
+import com.kingsrook.qbits.backups.scope.TableRole;
+import com.kingsrook.qbits.backups.scope.TableRoles;
 import com.kingsrook.qqq.backend.core.actions.async.AsyncJobCallback;
 import com.kingsrook.qqq.backend.core.context.QContext;
 import com.kingsrook.qqq.backend.core.jobs.plans.JobChunkScope;
@@ -37,6 +39,11 @@ import com.kingsrook.qqq.backend.core.jobs.progress.JobLogLevel;
 import com.kingsrook.qqq.backend.core.jobs.progress.JobPhase;
 import com.kingsrook.qqq.backend.core.jobs.progress.JobProgress;
 import com.kingsrook.qqq.backend.core.model.data.QRecord;
+import com.kingsrook.qqq.backend.core.model.metadata.QBackendMetaData;
+import com.kingsrook.qqq.backend.core.model.metadata.QInstance;
+import com.kingsrook.qqq.backend.core.model.metadata.fields.QFieldMetaData;
+import com.kingsrook.qqq.backend.core.model.metadata.fields.QFieldType;
+import com.kingsrook.qqq.backend.core.model.metadata.tables.QTableMetaData;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -231,6 +238,38 @@ class BackupEngineTest
 
 
    /*******************************************************************************
+    ** A table on a backend with no query interface (a storage-only module, like
+    ** qbit-edi's edi_preview_download) is left out of the scope, even when it is
+    ** selected by name, and the run succeeds.  Before the fix the reader queried it
+    ** and the run FAILED with "Query is not implemented in this module".
+    *******************************************************************************/
+   @Test
+   void testUnqueryableTableIsExcluded() throws Exception
+   {
+      QInstance qInstance = QContext.getQInstance();
+      qInstance.addBackend(new QBackendMetaData().withName("storageOnly").withBackendType(StorageOnlyBackendModule.class));
+      qInstance.addTable(new QTableMetaData().withName("previewDownload").withBackendName("storageOnly").withPrimaryKeyField("id")
+         .withField(new QFieldMetaData("id", QFieldType.INTEGER)));
+
+      BackupRunResult result = run(plan(Map.of()));
+      assertThat(result.getErrorMessage()).isNull();
+      assertThat(result.getStatus()).isEqualTo("SUCCEEDED_WITH_WARNINGS");
+      BackupManifest manifest = BackupManifest.read(BackupsTestUtils.BACKUPS.getBytes(result.getManifestKey()));
+      assertThat(manifest.table("previewDownload")).isNull();
+      assertThat(manifest.table("blogPost")).isNotNull();
+
+      assertThat(TableRoles.roleOf(qInstance, qInstance.getTable("previewDownload"))).isEqualTo(TableRole.EXTERNAL);
+      assertThat(TableRoles.isQueryable(qInstance, qInstance.getTable("blogPost"))).isTrue();
+
+      ScopeResolver.ResolvedScope scope = new ScopeResolver(qInstance).resolve(PlanSettings.adHoc().with("scopeType", "TABLES").with("includeRoles", "DATA,EXTERNAL"),
+         List.of(new ScopeResolver.ScopeRule(true, "TABLE", "previewDownload", null, false, null), new ScopeResolver.ScopeRule(true, "ROLE", "EXTERNAL", null, false, null)));
+      assertThat(scope.names()).doesNotContain("previewDownload");
+      assertThat(scope.excluded()).contains(new ScopeResolver.ExcludedTable("previewDownload", ScopeResolver.NOT_QUERYABLE));
+   }
+
+
+
+   /*******************************************************************************
     ** Required snapshots fail before anything is written (no backend can open one yet).
     *******************************************************************************/
    @Test
@@ -352,13 +391,14 @@ class BackupEngineTest
       BackupRunRequest request = BackupRunFactory.forPlan(plan(Map.of()), "MANUAL").withProgress(progress)
          .withReader((table, filter, start, size, transaction, sink) ->
          {
-            throw (new com.kingsrook.qqq.backend.core.exceptions.QException("https://storage-user:storage-password@host/?secret=storage-secret accessKey=storage-access row=private-row"));
+            throw (new com.kingsrook.qqq.backend.core.exceptions.QException("https://storage-user:storage-password@host/?secret=storage-secret accessKey=storage-access Detail: Key (email)=(private-row) already exists."));
          });
       BackupRunResult result = new BackupEngine().execute(request);
       assertThat(result.getStatus()).isEqualTo("FAILED");
       assertThat(progress.logs).contains("ERROR:" + result.getErrorMessage());
       assertThat(progress.getSnapshot().getPhases()).anyMatch(p -> p.getStatus() == JobPhase.Status.FAILED);
-      assertThat(String.join("\n", progress.logs) + result.getErrorMessage()).doesNotContain("storage-user", "storage-password", "storage-secret", "storage-access", "private-row", "https://");
+      assertThat(result.getErrorMessage()).startsWith("Backup failed: QException: https://[REDACTED]@host/");
+      assertThat(String.join("\n", progress.logs) + result.getErrorMessage() + result.getErrorDetail()).doesNotContain("storage-user", "storage-password", "storage-secret", "storage-access", "private-row");
    }
 
 
@@ -408,7 +448,52 @@ class BackupEngineTest
       BackupRunResult result = new BackupEngine().execute(BackupRunFactory.forPlan(plan(Map.of()), "MANUAL").withProgress(progress).withStorage(storage));
       assertThat(result.getStatus()).isEqualTo("FAILED");
       assertThat(progress.logs).contains("ERROR:" + result.getErrorMessage());
-      assertThat(String.join("\n", progress.logs) + result.getErrorMessage()).doesNotContain("endpoint-user", "endpoint-password", "access-secret", "secret-secret", "https://");
+      assertThat(String.join("\n", progress.logs) + result.getErrorMessage() + result.getErrorDetail()).doesNotContain("endpoint-user", "endpoint-password", "access-secret", "secret-secret");
+   }
+
+
+
+   /*******************************************************************************
+    ** A failed put records what an operator needs on the run row, with no secrets:
+    ** error_message is "Backup failed: Class: message" and error_detail has the
+    ** class, the cause chain and the root cause frames; the presigned signature,
+    ** the access key id and the URL user-info are redacted, the object key is kept.
+    *******************************************************************************/
+   @Test
+   void testFailedPutRecordsSanitizedMessageAndDetail() throws Exception
+   {
+      var storage = new com.kingsrook.qbits.backups.storage.InMemoryBackupStorage()
+      {
+         /*******************************************************************************
+          ** A MinIO-style failure with a presigned URL in the message.
+          *******************************************************************************/
+         @Override
+         public java.io.OutputStream openWrite(String key, com.kingsrook.qbits.backups.storage.WriteOptions options)
+         {
+            throw (new com.kingsrook.qbits.backups.storage.BackupStorageException(com.kingsrook.qbits.backups.storage.BackupStorageException.Reason.ACCESS_DENIED,
+               "AccessDenied on PUT https://minio-user:minio-pass@minio.galaxy.lan/kof22-backups/" + key
+                  + "?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20261016%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Signature=deadbeefcafe0123",
+               new IOException("XMinioStorageFull: Storage backend has reached its minimum free drive threshold. Authorization: AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/x, Signature=feedface")));
+         }
+      };
+      BackupRunResult result = new BackupEngine().execute(BackupRunFactory.forPlan(plan(Map.of()), "MANUAL").withStorage(storage));
+      assertThat(result.getStatus()).isEqualTo("FAILED");
+
+      QRecord run     = new BackupCatalog().get(BackupsTables.RUN, result.getRunId()).orElseThrow();
+      String  message = run.getValueString("errorMessage");
+      String  detail  = run.getValueString("errorDetail");
+      assertThat(message).isEqualTo(result.getErrorMessage());
+      assertThat(detail).isEqualTo(result.getErrorDetail());
+
+      assertThat(message).startsWith("Backup failed: BackupStorageException: AccessDenied on PUT https://[REDACTED]@minio.galaxy.lan/kof22-backups/qqq-backups/testapp/nightly/")
+         .doesNotContain("see server logs");
+      assertThat(detail).startsWith("com.kingsrook.qbits.backups.storage.BackupStorageException: AccessDenied on PUT")
+         .contains("\nCaused by: java.io.IOException: XMinioStorageFull: Storage backend has reached its minimum free drive threshold.")
+         .contains("X-Amz-Signature=[REDACTED]")
+         .contains("Root cause stack (top ")
+         .contains("\tat ");
+      assertThat(detail.length()).isLessThanOrEqualTo(FailureText.MAX_DETAIL_CHARS);
+      assertThat(message + detail).doesNotContain("deadbeefcafe0123", "AKIAIOSFODNN7EXAMPLE", "minio-user", "minio-pass", "feedface");
    }
 
 

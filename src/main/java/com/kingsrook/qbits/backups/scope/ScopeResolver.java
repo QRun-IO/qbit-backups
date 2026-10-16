@@ -48,6 +48,9 @@ import com.kingsrook.qqq.backend.core.model.metadata.tables.QTableMetaData;
  *******************************************************************************/
 public class ScopeResolver
 {
+   /** Exclusion reason of a table whose backend has no query interface (storage-only): it cannot be read, even when selected. */
+   public static final String NOT_QUERYABLE = "NOT_QUERYABLE";
+
    private final QInstance qInstance;
 
 
@@ -204,6 +207,10 @@ public class ScopeResolver
          else if(role == TableRole.BACKUPS)
          {
             excluded.add(new ExcludedTable(name, "BACKUPS"));
+         }
+         else if(!TableRoles.isQueryable(qInstance, table))
+         {
+            excluded.add(new ExcludedTable(name, NOT_QUERYABLE));
          }
          else if((role == TableRole.EPHEMERAL || role == TableRole.DERIVED || role == TableRole.EXTERNAL) && !explicit.contains(name) && !roles.contains(role))
          {

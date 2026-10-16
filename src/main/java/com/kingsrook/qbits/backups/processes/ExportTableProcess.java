@@ -118,7 +118,7 @@ public final class ExportTableProcess
             continue;
          }
          TableRole role = TableRoles.roleOf(qInstance, table);
-         if(role == TableRole.DATA || role == TableRole.AUDIT || role == TableRole.DERIVED)
+         if((role == TableRole.DATA || role == TableRole.AUDIT || role == TableRole.DERIVED) && TableRoles.isQueryable(qInstance, table))
          {
             processes.add(processFor(table.getName()));
          }
