@@ -1,26 +1,74 @@
-# Cut the next release candidate (QRun-IO/qqq docs/QRUN-QBIT-REPO-STANDARD.md, C6):
-# run this workflow by hand, or merge a develop PR labelled `release:rc`. It merges develop into
-# the release line and the release/* push runs CircleCI publish_release_candidate.
 name: Release candidate
-
-on:
+'on':
   workflow_dispatch:
     inputs:
       dry_run:
-        description: Print the plan without merging or creating branches
+        description: Plan a cut without changing release state
         type: boolean
         default: false
+      finalize:
+        description: Retry finalization of an existing cut; do not cut another RC
+        type: boolean
+        default: false
+      recover:
+        description: Recover the same published RC after a deployment timeout; never
+          reupload
+        type: boolean
+        default: false
+      circle_build:
+        description: Original Circle publisher build number (recovery only)
+        type: string
+        default: ''
+      merge_sha:
+        description: Existing cut merge_sha (finalize retry only)
+        type: string
+        default: ''
+      bump_sha:
+        description: Existing cut bump_sha (finalize retry only)
+        type: string
+        default: ''
+      branch:
+        description: Existing cut branch (finalize retry only)
+        type: string
+        default: ''
+      version:
+        description: Existing cut version (finalize retry only)
+        type: string
+        default: ''
   pull_request:
-    types: [closed]
-    branches: [develop]
-
+    types:
+    - closed
+    branches:
+    - develop
+  repository_dispatch:
+    types:
+    - qbit-rc-published
 permissions:
   contents: write
-
+  actions: read
+  checks: read
 jobs:
   release-rc:
-    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.merged == true && contains(github.event.pull_request.labels.*.name, 'release:rc'))
-    uses: QRun-IO/.github/.github/workflows/qbit-release-rc.yml@main
-    secrets: inherit
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch'
+      || (github.event_name == 'pull_request' && github.event.pull_request.merged
+      == true && github.event.pull_request.base.ref == 'develop' && contains(github.event.pull_request.labels.*.name,
+      'release:rc'))
+    uses: QRun-IO/qqq-orb/.github/workflows/qbit-release-rc.yml@cc30f599e63c8e41629c99d23395bac1adb8bc44
     with:
-      dry_run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+      dry_run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false
+        }}
+      finalize: ${{ github.event_name == 'repository_dispatch' || (github.event_name
+        == 'workflow_dispatch' && inputs.finalize) }}
+      recover: ${{ github.event_name == 'workflow_dispatch' && inputs.recover || false
+        }}
+      circle_build: ${{ github.event_name == 'workflow_dispatch' && inputs.circle_build
+        || '' }}
+      merge_sha: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.merge_sha
+        || inputs.merge_sha || '' }}
+      bump_sha: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.bump_sha
+        || inputs.bump_sha || '' }}
+      branch: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.branch
+        || inputs.branch || '' }}
+      version: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.version
+        || inputs.version || '' }}
+    secrets: inherit
