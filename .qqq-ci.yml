@@ -13,4 +13,4 @@ publish:
   release_candidate: true
   release: true
   asciidoc: false
-release_completion: false
+release_completion: true
