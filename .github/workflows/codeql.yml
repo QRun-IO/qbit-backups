@@ -1,0 +1,23 @@
+name: CodeQL
+'on':
+  push:
+    branches:
+    - main
+    - develop
+    - release/**
+    - hotfix/**
+  pull_request: {}
+  schedule:
+  - cron: 41 16 * * 0
+  workflow_dispatch: {}
+permissions:
+  contents: read
+  actions: read
+  security-events: write
+  packages: read
+concurrency:
+  group: codeql-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  analyze:
+    uses: QRun-IO/qqq-orb/.github/workflows/qbit-codeql.yml@c288a8864fe9054f68410e1d78f5863aea4c4d22
