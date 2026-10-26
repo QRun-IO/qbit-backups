@@ -53,7 +53,7 @@ jobs:
       || (github.event_name == 'pull_request' && github.event.pull_request.merged
       == true && github.event.pull_request.base.ref == 'develop' && contains(github.event.pull_request.labels.*.name,
       'release:rc'))
-    uses: QRun-IO/qqq-orb/.github/workflows/qbit-release-rc.yml@cc30f599e63c8e41629c99d23395bac1adb8bc44
+    uses: QRun-IO/qqq-orb/.github/workflows/qbit-release-rc.yml@1c389210e6dfda1630d053c07ae4dae523dd5576
     with:
       dry_run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false
         }}
