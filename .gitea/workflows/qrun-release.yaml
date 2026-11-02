@@ -14,3 +14,12 @@ jobs:
       docker-runner: container-build
       browsers: true
       browser-runner: browser-build
+  postpublish:
+    if: ${{ needs.release.outputs.capture == 'true' }}
+    needs: release
+    permissions:
+      contents: write
+      actions: write
+    uses: self:KofTwentyTwo/platform-ci/.gitea/workflows/qrun-source-version.yaml@qrun-release-v1
+    with:
+      runner: linux-small
