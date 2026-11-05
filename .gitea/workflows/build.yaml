@@ -1,0 +1,7 @@
+name: build
+on:
+  push:
+jobs:
+  maven:
+    uses: self:KofTwentyTwo/ci-workflows/.gitea/workflows/maven.yaml@main
+    secrets: inherit
